@@ -1,0 +1,208 @@
+# AR Dungeon — Room-Scale Embedded Systems AR Game
+
+[![Platform](https://img.shields.io/badge/Platform-Android%2014%20(API%2034)-green.svg)](https://developer.android.com/)
+[![Language](https://img.shields.io/badge/Language-Kotlin%201.9.24-blue.svg)](https://kotlinlang.org/)
+[![Graphics](https://img.shields.io/badge/Rendering-OpenGL%20ES%203.0%2B-orange.svg)](https://www.khronos.org/opengles/)
+[![AR Framework](https://img.shields.io/badge/AR-Google%20ARCore-red.svg)](https://developers.google.com/ar)
+[![Target Device](https://img.shields.io/badge/Target-Samsung%20Galaxy%20Tab%20S8%2B-purple.svg)](https://www.samsung.com/)
+
+A real-time, room-scale Augmented Reality application developed for an **Android Embedded Systems** course.
+
+The central premise of the project:
+> **The physical room becomes the computational game world.**
+
+Rather than relying on pre-packaged commercial game engines (Unity, Unreal) or cloud-based spatial services, this project implements spatial perception, geometric environment modeling, 2.5D occupancy grid mapping, custom A* path planning, finite-state-machine agent behaviors, and hardware-accelerated OpenGL ES rendering directly on native Android.
+
+---
+
+## 🏛️ System Feedback Loop
+
+```
+PHYSICAL WORLD
+    │
+    ▼ (Camera Feed + IMU Sensors)
+GOOGLE ARCORE
+    │
+    ▼ (Pose, Feature Points, Planes, Raw Depth API)
+SPATIAL PERCEPTION
+    │
+    ▼ (Floor Detection, Obstacle Filtering, Raycasting)
+2.5D OCCUPANCY GRID (ENVIRONMENT MODEL)
+    │
+    ▼ (Inflation & Traversal Matrix)
+PROCEDURAL DUNGEON & A* PATH PLANNING
+    │
+    ▼ (State Transitions: Patrol, Chase, Search, Cover)
+FINITE STATE MACHINE (AUTONOMOUS AI)
+    │
+    ▼ (Occlusion Fragment Shaders, 3D Meshes, OES Background)
+OPENGL ES GRAPHICS PIPELINE
+    │
+    ▼ (Stereoscopic Depth Occlusion & Real-Time Feedback)
+PLAYER INTERACTION
+```
+
+---
+
+## 🎯 Target Hardware & Technical Specifications
+
+- **Target Device:** Samsung Galaxy Tab S8+ (Wi-Fi / 5G)
+- **SoC / Chipset:** Qualcomm Snapdragon 8 Gen 1 (4 nm)
+- **CPU:** Octa-core (1x3.00 GHz Cortex-X2 & 3x2.50 GHz Cortex-A710 & 4x1.80 GHz Cortex-A510)
+- **GPU:** Adreno 730 (supporting OpenGL ES 3.2 and Vulkan 1.1)
+- **Display:** 12.4" Super AMOLED (120Hz, 2800 x 1752)
+- **Sensing Suite:** Dual camera array, IMU (accelerometer, gyroscope), ARCore Depth API (Motion Stereo)
+- **Operating System:** Android 12 / 13 / 14 (Target SDK: API 34, Min SDK: API 26)
+
+---
+
+## 🛠️ Technology Stack & Architectural Constraints
+
+In strict accordance with Embedded Systems engineering principles:
+
+- **Language:** 100% Kotlin
+- **Build System:** Gradle 8.7 with Android Gradle Plugin (AGP) 8.4.2
+- **AR Subsystem:** Native Google ARCore SDK (Java/Kotlin API)
+- **Rendering Subsystem:** Direct OpenGL ES 3.0+ via `android.opengl.GLSurfaceView`
+- **Navigation:** Custom Occupancy Grid and A* pathfinding algorithm
+- **Agent Intelligence:** Lightweight Finite-State Machine (FSM)
+- **Zero Third-Party Game Engines:** Strictly no Unity, Unreal Engine, Godot, or Sceneform
+- **Geometric Grounding:** Environment perception relies strictly on physical geometry (planes, point clouds, depth maps). No reliance on cloud semantic object recognition.
+
+---
+
+## 🧵 Threading & Concurrency Architecture
+
+To guarantee smooth 60 FPS graphics and prevent tracking degradation, tasks are partitioned strictly across separate threads:
+
+| Thread | Responsibility | Frequency / Budget |
+| :--- | :--- | :--- |
+| **Android UI Thread** | Touch input, lifecycle events, debug telemetry displays | 60 Hz (event-driven) |
+| **GL Render Thread** | `Session.update()`, camera background rendering, 3D virtual drawing, depth occlusion shader | 60 FPS (~16.6 ms budget) |
+| **Perception Worker** | Depth buffer unpacking, point cloud filtering, 2.5D occupancy grid updates | 10 – 15 Hz |
+| **AI & Navigation Pool** | Obstacle inflation, A* path planning, agent state evaluation | Asynchronous (Kotlin Coroutines) |
+
+---
+
+## 📂 Project Structure
+
+```
+AR_Dung/
+├── .github/                       # GitHub workflows and automation
+├── app/                           # Android application module
+│   ├── build.gradle.kts           # Module-level Gradle configuration (dependencies, SDKs)
+│   ├── proguard-rules.pro         # Proguard/R8 rules
+│   └── src/
+│       └── main/
+│           ├── AndroidManifest.xml
+│           ├── java/com/embedded/argame/
+│           │   └── MainActivity.kt
+│           └── res/
+│               ├── layout/
+│               │   └── activity_main.xml
+│               └── values/
+│                   ├── colors.xml
+│                   ├── strings.xml
+│                   └── themes.xml
+├── docs/                          # Comprehensive architectural specifications
+│   ├── capability_report.md       # Hardware & software environment assessment
+│   ├── implementation_roadmap.md  # Step-by-step milestone breakdown
+│   └── software_architecture.md   # System modules, data flow, and contracts
+├── gradle/wrapper/                # Gradle wrapper binaries & properties
+│   ├── gradle-wrapper.jar
+│   └── gradle-wrapper.properties
+├── build.gradle.kts               # Root build script
+├── environment_baseline.md        # Verified toolchain baseline & status report
+├── gradle.properties              # JVM args and AndroidX configuration
+├── gradlew                        # Unix Gradle wrapper executable
+├── gradlew.bat                    # Windows Gradle wrapper batch script
+├── PROJECT_RULES.md               # Mandatory engineering rules for contributors and agents
+├── README.md                      # Project documentation
+└── settings.gradle.kts            # Project settings & repository declarations
+```
+
+---
+
+## 🚀 Getting Started & Building
+
+### 1. Prerequisites
+- **JDK:** OpenJDK 17 LTS (Microsoft OpenJDK 17 or Eclipse Temurin 17 recommended)
+- **Android SDK:** Platform API 34 (`platforms;android-34`) and Build Tools `34.0.0`
+- **Platform Tools:** ADB 37.0.1+ (`platform-tools`)
+- **Environment Variables:**
+  - `JAVA_HOME` pointing to JDK 17
+  - `ANDROID_HOME` pointing to Android SDK directory
+
+### 2. Build the Debug APK
+Using the provided Gradle wrapper:
+
+```powershell
+# On Windows PowerShell
+.\gradlew.bat assembleDebug
+
+# On macOS / Linux
+./gradlew assembleDebug
+```
+
+The compiled APK will be generated at:
+`app/build/outputs/apk/debug/app-debug.apk`
+
+### 3. Deploy to Samsung Galaxy Tab S8+
+1. Connect the tablet to your computer via USB-C.
+2. Enable **Developer Options** and **USB Debugging** on the tablet:
+   - *Settings → About tablet → Software information → Tap "Build number" 7 times*
+   - *Settings → Developer options → Enable "USB Debugging"*
+3. Authorize the computer on the tablet pop-up ("Always allow from this computer").
+4. Install and launch the application:
+
+```powershell
+# Verify ADB connection
+adb devices -l
+
+# Install the APK
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+
+# Launch the application
+adb shell am start -n com.embedded.argame/.MainActivity
+```
+
+---
+
+## 🗺️ Implementation Roadmap
+
+| Milestone | Goal | Status |
+| :---: | :--- | :---: |
+| **1** | **Android Toolchain Setup & Minimal Device Deployment** | **In Progress (Build Verified)** |
+| **2** | ARCore Session Initialization & Permissions | Planned |
+| **3** | OpenGL ES Camera Background & Pose Tracking | Planned |
+| **4** | Horizontal Plane Detection & Visualization | Planned |
+| **5** | Coordinate Systems, World Transforms & Anchors | Planned |
+| **6** | ARCore Depth API Stream Visualization | Planned |
+| **7** | Real-Time Depth Map & Geometry Processing | Planned |
+| **8** | 2.5D Occupancy Grid Representation | Planned |
+| **9** | Custom A* Pathfinding with Obstacle Inflation | Planned |
+| **10** | Virtual Agent World Placement & Path Following | Planned |
+| **11** | Autonomous Agent Finite-State Machine (FSM) | Planned |
+| **12** | Depth-Aware Shader Occlusion of Virtual Objects | Planned |
+| **13** | Procedural Dungeon Generation on Physical Grid | Planned |
+| **14** | Intelligent AI Behaviors (Chase, Search, Cover) | Planned |
+| **15** | Embedded Systems Telemetry (FPS, CPU, Thermals, Battery) | Planned |
+| **16** | Course Project Final Polish & Interactive Gameplay | Planned |
+
+---
+
+## 📜 Engineering Rules
+
+All contributions and automated agents must adhere strictly to [PROJECT_RULES.md](file:///c:/Users/User/Desktop/Projects%20%28Coding%29/AR%20game%20%28embedded%20systems%29/PROJECT_RULES.md):
+- Native Android/Kotlin and OpenGL ES only.
+- No commercial or third-party game engines.
+- Official Android and ARCore documentation is the source of truth.
+- Zero expensive operations on the UI thread.
+- Avoid per-frame object allocations in hot loops.
+- Follow conventional commits (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`).
+
+---
+
+## 📄 License & Course Context
+Developed for the **Android Embedded Systems** course project.
+All source code and documentation are maintained for educational and embedded systems research purposes.
