@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">AR Embedded Game</string>
+    <string name="title_project">AR Embedded Game</string>
+    <string name="subtitle_milestone">Milestone 1</string>
+    <string name="status_verified">Android environment verified</string>
+    <string name="device_target">Target: Samsung Galaxy Tab S8+</string>
+    <string name="status_system">Embedded Systems Course Project</string>
+</resources>
