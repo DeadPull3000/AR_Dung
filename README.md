@@ -172,9 +172,9 @@ adb shell am start -n com.embedded.argame/.MainActivity
 
 | Milestone | Goal | Status |
 | :---: | :--- | :---: |
-| **1** | **Android Toolchain Setup & Minimal Device Deployment** | **In Progress (Build Verified)** |
-| **2** | ARCore Session Initialization & Permissions | Planned |
-| **3** | OpenGL ES Camera Background & Pose Tracking | Planned |
+| **1** | **Android Toolchain Setup & Minimal Device Deployment** | **Completed & Verified** |
+| **2** | **ARCore Session Initialization, Camera Background & 6-DOF Tracking** | **Completed & Verified (60 FPS)** |
+| **3** | Horizontal Plane Detection & Visualization | Planned |
 | **4** | Horizontal Plane Detection & Visualization | Planned |
 | **5** | Coordinate Systems, World Transforms & Anchors | Planned |
 | **6** | ARCore Depth API Stream Visualization | Planned |
