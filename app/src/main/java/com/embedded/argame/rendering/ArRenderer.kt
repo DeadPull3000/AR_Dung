@@ -31,6 +31,7 @@ class ArRenderer(
 
     private val backgroundRenderer = BackgroundRenderer()
     private val planeRenderer = PlaneRenderer()
+    private val anchorMarkerRenderer = AnchorMarkerRenderer()
 
     private var viewportWidth = 0
     private var viewportHeight = 0
@@ -50,9 +51,10 @@ class ArRenderer(
         GLES20.glClearColor(0.05f, 0.05f, 0.05f, 1.0f)
         backgroundRenderer.createOnGlThread()
         planeRenderer.createOnGlThread()
+        anchorMarkerRenderer.createOnGlThread()
 
         sessionManager.setCameraTextureName(backgroundRenderer.textureId)
-        Log.i(TAG, "GL Surface created. Background and Plane renderers initialized.")
+        Log.i(TAG, "GL Surface created. Background, Plane, and Anchor Marker renderers initialized.")
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -83,15 +85,22 @@ class ArRenderer(
             // 1. Render camera video feed background
             backgroundRenderer.draw(frame)
 
-            // 2. Render 3D spatial planes if camera is tracking
+            // 2. Render 3D spatial planes & 3D anchor marker if camera is tracking
             val camera = frame.camera
             if (camera.trackingState == TrackingState.TRACKING) {
                 camera.getViewMatrix(viewMatrix, 0)
                 camera.getProjectionMatrix(projectionMatrix, 0, Z_NEAR, Z_FAR)
                 Matrix.multiplyMM(viewProjectionMatrix, 0, projectionMatrix, 0, viewMatrix, 0)
 
+                // Render detected planes
                 val activePlanes = sessionManager.getActivePlanes()
                 planeRenderer.draw(activePlanes, viewProjectionMatrix)
+
+                // Render 3D diagnostic marker attached to active Anchor
+                val activeAnchor = sessionManager.getActiveAnchor()
+                if (activeAnchor != null && activeAnchor.trackingState == TrackingState.TRACKING) {
+                    anchorMarkerRenderer.draw(activeAnchor.pose, viewProjectionMatrix)
+                }
             }
         }
 
