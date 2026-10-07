@@ -21,8 +21,8 @@ The MVP is the smallest complete end-to-end slice demonstrating the core feedbac
 - **Milestone 1:** Android project setup + device deployment (Establish toolchain, minimal app, verified APK).
   - *Status:* COMPLETED & VERIFIED on Samsung Galaxy Tab S8+ (`SM-X800`).
 - **Milestone 2:** ARCore initialization & spatial perception baseline (Camera permissions, session lifecycle, live OpenGL ES camera background, real-time 6-DOF tracking).
-  - *Status:* COMPLETED & VERIFIED on physical tablet at 60 FPS.
-- **Milestone 3:** Plane detection & visualization (Visualizing detected horizontal floor planes in world coordinates).
+- **Milestone 3:** Spatial plane tracking & visualization (Obtaining ARCore Plane trackables, handling plane lifecycle and subsumption, world-space coordinate transformation, OpenGL ES 3.0 dual-pass polygon rendering with type color coding, real-time spatial HUD telemetry).
+  - *Status:* COMPLETED & VERIFIED on physical tablet at 60 FPS (13+ planes detected and rendered).
 - **Milestone 4:** Plane detection (Visualizing detected horizontal floor planes).
 - **Milestone 5:** Coordinate systems + anchors (Placing anchored 3D objects in physical world coordinates).
 - **Milestone 6:** Depth visualization (Debug rendering of raw ARCore depth map).

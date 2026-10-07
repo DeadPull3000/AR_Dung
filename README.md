@@ -96,7 +96,15 @@ AR_Dung/
 │       └── main/
 │           ├── AndroidManifest.xml
 │           ├── java/com/embedded/argame/
-│           │   └── MainActivity.kt
+│           │   ├── MainActivity.kt
+│           │   ├── perception/    # ARCore session management & decoupled plane models
+│           │   │   ├── ArSessionManager.kt
+│           │   │   ├── PlaneData.kt
+│           │   │   └── TrackingState.kt
+│           │   └── rendering/     # Hardware-accelerated OpenGL ES 3.0 renderers
+│           │       ├── ArRenderer.kt
+│           │       ├── BackgroundRenderer.kt
+│           │       └── PlaneRenderer.kt
 │           └── res/
 │               ├── layout/
 │               │   └── activity_main.xml
@@ -104,15 +112,18 @@ AR_Dung/
 │                   ├── colors.xml
 │                   ├── strings.xml
 │                   └── themes.xml
-├── docs/                          # Comprehensive architectural specifications
+├── docs/                          # Comprehensive architectural specifications & screenshots
 │   ├── capability_report.md       # Hardware & software environment assessment
 │   ├── implementation_roadmap.md  # Step-by-step milestone breakdown
-│   └── software_architecture.md   # System modules, data flow, and contracts
+│   ├── software_architecture.md   # System modules, data flow, and contracts
+│   └── screenshots/               # On-device physical verification captures
 ├── gradle/wrapper/                # Gradle wrapper binaries & properties
 │   ├── gradle-wrapper.jar
 │   └── gradle-wrapper.properties
 ├── build.gradle.kts               # Root build script
 ├── environment_baseline.md        # Verified toolchain baseline & status report
+├── milestone_2_arcore.md          # Milestone 2 physical verification report
+├── milestone_3_planes.md          # Milestone 3 plane detection & rendering verification
 ├── gradle.properties              # JVM args and AndroidX configuration
 ├── gradlew                        # Unix Gradle wrapper executable
 ├── gradlew.bat                    # Windows Gradle wrapper batch script
@@ -174,9 +185,9 @@ adb shell am start -n com.embedded.argame/.MainActivity
 | :---: | :--- | :---: |
 | **1** | **Android Toolchain Setup & Minimal Device Deployment** | **Completed & Verified** |
 | **2** | **ARCore Session Initialization, Camera Background & 6-DOF Tracking** | **Completed & Verified (60 FPS)** |
-| **3** | Horizontal Plane Detection & Visualization | Planned |
-| **4** | Horizontal Plane Detection & Visualization | Planned |
-| **5** | Coordinate Systems, World Transforms & Anchors | Planned |
+| **3** | **Spatial Plane Detection, Subsumption Handling & 3D Visualization** | **Completed & Verified (60 FPS)** |
+| **4** | World Coordinates & Anchored Object Transformation | Planned |
+| **5** | Spatial Mesh & Coordinate Transformation Refinements | Planned |
 | **6** | ARCore Depth API Stream Visualization | Planned |
 | **7** | Real-Time Depth Map & Geometry Processing | Planned |
 | **8** | 2.5D Occupancy Grid Representation | Planned |
