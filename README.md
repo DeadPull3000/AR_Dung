@@ -100,12 +100,14 @@ AR_Dung/
 │           │   ├── perception/    # ARCore session management & decoupled spatial models
 │           │   │   ├── AnchorData.kt
 │           │   │   ├── ArSessionManager.kt
+│           │   │   ├── DepthData.kt
 │           │   │   ├── PlaneData.kt
 │           │   │   └── TrackingState.kt
 │           │   └── rendering/     # Hardware-accelerated OpenGL ES 3.0 renderers
 │           │       ├── AnchorMarkerRenderer.kt
 │           │       ├── ArRenderer.kt
 │           │       ├── BackgroundRenderer.kt
+│           │       ├── DepthHeatmapRenderer.kt
 │           │       └── PlaneRenderer.kt
 │           └── res/
 │               ├── layout/
@@ -117,16 +119,15 @@ AR_Dung/
 ├── docs/                          # Comprehensive architectural specifications & screenshots
 │   ├── capability_report.md       # Hardware & software environment assessment
 │   ├── implementation_roadmap.md  # Step-by-step milestone breakdown
+│   ├── milestone_3_planes.md      # Milestone 3 plane detection & rendering verification
+│   ├── milestone_4_hit_testing_anchors.md # Milestone 4 hit-testing & anchor verification
+│   ├── milestone_5_depth.md       # Milestone 5 16-bit depth & heatmap verification
 │   ├── software_architecture.md   # System modules, data flow, and contracts
 │   └── screenshots/               # On-device physical verification captures
 ├── gradle/wrapper/                # Gradle wrapper binaries & properties
 │   ├── gradle-wrapper.jar
 │   └── gradle-wrapper.properties
 ├── build.gradle.kts               # Root build script
-├── environment_baseline.md        # Verified toolchain baseline & status report
-├── milestone_2_arcore.md          # Milestone 2 physical verification report
-├── milestone_3_planes.md          # Milestone 3 plane detection & rendering verification
-├── milestone_4_hit_testing_anchors.md # Milestone 4 hit-testing & anchor verification
 ├── gradle.properties              # JVM args and AndroidX configuration
 ├── gradlew                        # Unix Gradle wrapper executable
 ├── gradlew.bat                    # Windows Gradle wrapper batch script
@@ -190,8 +191,8 @@ adb shell am start -n com.embedded.argame/.MainActivity
 | **2** | **ARCore Session Initialization, Camera Background & 6-DOF Tracking** | **Completed & Verified (60 FPS)** |
 | **3** | **Spatial Plane Detection, Subsumption Handling & 3D Visualization** | **Completed & Verified (60 FPS)** |
 | **4** | **Screen Hit-Testing, ARCore Anchors & 3D Spatial Marker** | **Completed & Verified (60 FPS)** |
-| **5** | Coordinate Systems, World Transforms & Multiple Anchored Objects | Planned |
-| **6** | ARCore Depth API Stream Visualization | Planned |
+| **5** | **ARCore Depth Perception, 16-Bit Sampling & False-Color Heatmap** | **Completed & Verified (60 FPS)** |
+| **6** | 2.5D Occupancy Grid Representation & Spatial Discretization | Planned |
 | **7** | Real-Time Depth Map & Geometry Processing | Planned |
 | **8** | 2.5D Occupancy Grid Representation | Planned |
 | **9** | Custom A* Pathfinding with Obstacle Inflation | Planned |

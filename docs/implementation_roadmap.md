@@ -25,8 +25,9 @@ The MVP is the smallest complete end-to-end slice demonstrating the core feedbac
   - *Status:* COMPLETED & VERIFIED on physical tablet at 60 FPS (13+ planes detected and rendered).
 - **Milestone 4:** Screen hit-testing, ARCore Anchors & 3D spatial marker (Screen tap to raycast hit-testing, tracked plane filtering and scoring, single Anchor lifecycle with safe replacement and reset, 3D cube and RGB 6-DoF coordinate axes rendering, spatial stability verification).
   - *Status:* COMPLETED & VERIFIED on physical tablet at ~60 FPS.
-- **Milestone 5:** Coordinate systems + anchors (Placing anchored 3D objects in physical world coordinates).
-- **Milestone 6:** Depth visualization (Debug rendering of raw ARCore depth map).
+- **Milestone 5:** Depth perception foundation (ARCore 16-bit depth acquisition, AUTOMATIC depth mode configuration, image stride and Little-Endian byte-order handling, 10 Hz throttled statistical sampling, OpenGL ES 3.0 false-color depth heatmap overlay, 5-point screen coordinate sampling, raw depth & confidence investigation, camera intrinsics extraction).
+  - *Status:* COMPLETED & VERIFIED on physical tablet at 59.9 FPS (160x90 depth resolution, 100% dense coverage with motion, stable metric readings).
+- **Milestone 6:** Occupancy grid construction (Converting depth point cloud and plane geometry into a 2.5D occupancy map).
 - **Milestone 7:** Depth/geometry processing (Background depth buffer extraction and spatial filtering).
 - **Milestone 8:** Occupancy grid (Constructing and updating 2.5D occupancy map).
 - **Milestone 9:** A* navigation (Grid-based path planning with obstacle inflation).
