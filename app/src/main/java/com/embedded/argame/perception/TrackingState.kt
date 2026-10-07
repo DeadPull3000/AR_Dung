@@ -19,5 +19,6 @@ data class TrackingDiagnostics(
     val qW: Float = 1f,
     val fps: Float = 0f,
     val frameTimestampNs: Long = 0L,
-    val planes: PlaneDiagnostics = PlaneDiagnostics()
+    val planes: PlaneDiagnostics = PlaneDiagnostics(),
+    val anchor: AnchorDiagnostics = AnchorDiagnostics()
 )

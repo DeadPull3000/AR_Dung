@@ -3,10 +3,13 @@ package com.embedded.argame.perception
 import android.app.Activity
 import android.util.Log
 import android.view.Display
+import android.graphics.PointF
+import com.google.ar.core.Anchor
 import com.google.ar.core.ArCoreApk
 import com.google.ar.core.Camera
 import com.google.ar.core.Config
 import com.google.ar.core.Frame
+import com.google.ar.core.HitResult
 import com.google.ar.core.Plane
 import com.google.ar.core.Pose
 import com.google.ar.core.Session
@@ -18,6 +21,8 @@ import com.google.ar.core.exceptions.UnavailableArcoreNotInstalledException
 import com.google.ar.core.exceptions.UnavailableDeviceNotCompatibleException
 import com.google.ar.core.exceptions.UnavailableSdkTooOldException
 import com.google.ar.core.exceptions.UnavailableUserDeclinedInstallationException
+import java.util.Locale
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Manages the ARCore Session lifecycle, configuration, frame updates,
@@ -43,6 +48,14 @@ class ArSessionManager(private val activity: Activity) {
     // Thread-safe list of active planes for rendering
     private val activePlanesList = mutableListOf<Plane>()
     private val activePlanesLock = Any()
+
+    // Hit testing and single test Anchor state
+    private val pendingTap = AtomicReference<PointF?>(null)
+    private var activeAnchor: Anchor? = null
+    private var activeAnchorPlaneType = TrackedPlaneType.UNKNOWN
+    private var activeAnchorStatus = AnchorStatus.NONE
+    private var lastHitMessage = "Tap detected plane to place 3D marker"
+    private val anchorLock = Any()
 
     interface SessionListener {
         fun onSessionInitialized(session: Session)
@@ -160,6 +173,11 @@ class ArSessionManager(private val activity: Activity) {
         synchronized(activePlanesLock) {
             activePlanesList.clear()
         }
+        synchronized(anchorLock) {
+            activeAnchor?.detach()
+            activeAnchor = null
+            activeAnchorStatus = AnchorStatus.NONE
+        }
     }
 
     /**
@@ -178,12 +196,13 @@ class ArSessionManager(private val activity: Activity) {
 
     /**
      * Called on the GL render thread on every frame.
-     * Updates ARCore state and returns the current Frame.
+     * Updates ARCore state, processes queued screen taps, and returns the current Frame.
      */
     fun updateFrame(): Frame? {
         val currentSession = session ?: return null
         return try {
             val frame = currentSession.update()
+            processQueuedTap(frame)
             extractDiagnostics(frame, currentSession)
             frame
         } catch (e: CameraNotAvailableException) {
@@ -196,11 +215,124 @@ class ArSessionManager(private val activity: Activity) {
     }
 
     /**
+     * Enqueues a screen tap coordinate (in pixels) for hit-testing on the GL render thread.
+     */
+    fun queueTap(x: Float, y: Float) {
+        pendingTap.set(PointF(x, y))
+    }
+
+    /**
+     * Safely detaches and clears the active spatial Anchor.
+     */
+    fun resetAnchor() {
+        synchronized(anchorLock) {
+            activeAnchor?.detach()
+            activeAnchor = null
+            activeAnchorPlaneType = TrackedPlaneType.UNKNOWN
+            activeAnchorStatus = AnchorStatus.NONE
+            lastHitMessage = "Marker reset by user"
+            Log.i(TAG, "Anchor reset by user.")
+        }
+    }
+
+    /**
+     * Returns the active ARCore Anchor if one exists and is tracking.
+     */
+    fun getActiveAnchor(): Anchor? {
+        synchronized(anchorLock) {
+            return activeAnchor
+        }
+    }
+
+    /**
      * Returns a thread-safe snapshot of currently active, non-subsumed planes.
      */
     fun getActivePlanes(): List<Plane> {
         synchronized(activePlanesLock) {
             return activePlanesList.toList()
+        }
+    }
+
+    /**
+     * Processes any user tap queued from the UI thread by performing an ARCore hit-test.
+     */
+    private fun processQueuedTap(frame: Frame) {
+        val tap = pendingTap.getAndSet(null) ?: return
+
+        val camera = frame.camera
+        if (camera.trackingState != TrackingState.TRACKING) {
+            synchronized(anchorLock) {
+                lastHitMessage = "Tracking not ready (PAUSED)"
+            }
+            Log.w(TAG, "Tap ignored: Camera is not in TRACKING state")
+            return
+        }
+
+        val hitResults = frame.hitTest(tap.x, tap.y)
+        if (hitResults.isEmpty()) {
+            synchronized(anchorLock) {
+                lastHitMessage = "No surface detected at tap"
+            }
+            Log.i(TAG, "Hit test returned 0 results at screen (${tap.x}, ${tap.y})")
+            return
+        }
+
+        data class PlaneHitCandidate(
+            val hitResult: HitResult,
+            val plane: Plane,
+            val planeType: TrackedPlaneType,
+            val priority: Int
+        )
+
+        val candidates = mutableListOf<PlaneHitCandidate>()
+
+        for (hit in hitResults) {
+            val trackable = hit.trackable
+            if (trackable is Plane && trackable.trackingState == TrackingState.TRACKING && trackable.subsumedBy == null) {
+                val inPolygon = trackable.isPoseInPolygon(hit.hitPose)
+                val inExtents = trackable.isPoseInExtents(hit.hitPose)
+                if (!inPolygon && !inExtents) continue
+
+                val type = when (trackable.type) {
+                    Plane.Type.HORIZONTAL_UPWARD_FACING -> TrackedPlaneType.HORIZONTAL_UPWARD_FACING
+                    Plane.Type.HORIZONTAL_DOWNWARD_FACING -> TrackedPlaneType.HORIZONTAL_DOWNWARD_FACING
+                    Plane.Type.VERTICAL -> TrackedPlaneType.VERTICAL
+                    else -> TrackedPlaneType.UNKNOWN
+                }
+
+                val priority = when {
+                    inPolygon && trackable.type == Plane.Type.HORIZONTAL_UPWARD_FACING -> 1
+                    inPolygon && trackable.type == Plane.Type.VERTICAL -> 2
+                    inPolygon && trackable.type == Plane.Type.HORIZONTAL_DOWNWARD_FACING -> 3
+                    inPolygon -> 4
+                    else -> 5
+                }
+
+                candidates.add(PlaneHitCandidate(hit, trackable, type, priority))
+            }
+        }
+
+        if (candidates.isEmpty()) {
+            synchronized(anchorLock) {
+                lastHitMessage = "Hit not on tracked plane boundary"
+            }
+            Log.i(TAG, "Hit test had ${hitResults.size} hits, but none on an active non-subsumed Plane")
+            return
+        }
+
+        val bestCandidate = candidates.minWithOrNull(compareBy({ it.priority }, { it.hitResult.distance }))
+        if (bestCandidate != null) {
+            synchronized(anchorLock) {
+                activeAnchor?.detach()
+
+                val newAnchor = bestCandidate.hitResult.createAnchor()
+                activeAnchor = newAnchor
+                activeAnchorPlaneType = bestCandidate.planeType
+                activeAnchorStatus = AnchorStatus.TRACKING
+                val p = newAnchor.pose
+                lastHitMessage = String.format(Locale.US, "Anchor on %s (%.2fm)", bestCandidate.planeType, bestCandidate.hitResult.distance)
+                Log.i(TAG, "Created Anchor at world pose [X=%.3f, Y=%.3f, Z=%.3f] on %s".format(Locale.US, p.tx(), p.ty(), p.tz(), bestCandidate.planeType))
+            }
         }
     }
 
@@ -301,6 +433,55 @@ class ArSessionManager(private val activity: Activity) {
             candidateSurfaceHeightY = candidateFloorHeightY
         )
 
+        // --- Spatial Anchor Telemetry ---
+        val anchorDiagnostics: AnchorDiagnostics
+        synchronized(anchorLock) {
+            val anchor = activeAnchor
+            if (anchor != null) {
+                val anchorTracking = anchor.trackingState
+                if (anchorTracking == TrackingState.TRACKING) {
+                    val aPose = anchor.pose
+                    val ax = aPose.tx()
+                    val ay = aPose.ty()
+                    val az = aPose.tz()
+                    val dx = ax - lastPoseTranslation[0]
+                    val dy = ay - lastPoseTranslation[1]
+                    val dz = az - lastPoseTranslation[2]
+                    val dist = Math.sqrt((dx * dx + dy * dy + dz * dz).toDouble()).toFloat()
+
+                    anchorDiagnostics = AnchorDiagnostics(
+                        status = AnchorStatus.TRACKING,
+                        posX = ax,
+                        posY = ay,
+                        posZ = az,
+                        distanceMeters = dist,
+                        surfaceType = activeAnchorPlaneType,
+                        lastHitMessage = lastHitMessage
+                    )
+                } else if (anchorTracking == TrackingState.STOPPED) {
+                    anchor.detach()
+                    activeAnchor = null
+                    activeAnchorStatus = AnchorStatus.STOPPED
+                    anchorDiagnostics = AnchorDiagnostics(
+                        status = AnchorStatus.STOPPED,
+                        surfaceType = activeAnchorPlaneType,
+                        lastHitMessage = "Anchor STOPPED tracking"
+                    )
+                } else {
+                    anchorDiagnostics = AnchorDiagnostics(
+                        status = AnchorStatus.PAUSED,
+                        surfaceType = activeAnchorPlaneType,
+                        lastHitMessage = "Anchor tracking PAUSED"
+                    )
+                }
+            } else {
+                anchorDiagnostics = AnchorDiagnostics(
+                    status = activeAnchorStatus,
+                    lastHitMessage = lastHitMessage
+                )
+            }
+        }
+
         val diagnostics = TrackingDiagnostics(
             status = status,
             failureReason = failureReason,
@@ -312,7 +493,8 @@ class ArSessionManager(private val activity: Activity) {
             qZ = lastPoseRotation[2],
             qW = lastPoseRotation[3],
             frameTimestampNs = frame.timestamp,
-            planes = planeDiagnostics
+            planes = planeDiagnostics,
+            anchor = anchorDiagnostics
         )
 
         listener?.onTrackingUpdated(diagnostics)
