@@ -7,6 +7,7 @@ import com.google.ar.core.ArCoreApk
 import com.google.ar.core.Camera
 import com.google.ar.core.Config
 import com.google.ar.core.Frame
+import com.google.ar.core.Plane
 import com.google.ar.core.Pose
 import com.google.ar.core.Session
 import com.google.ar.core.TrackingFailureReason
@@ -19,8 +20,9 @@ import com.google.ar.core.exceptions.UnavailableSdkTooOldException
 import com.google.ar.core.exceptions.UnavailableUserDeclinedInstallationException
 
 /**
- * Manages the ARCore Session lifecycle, configuration, and frame updates.
- * Keeps ARCore perception logic cleanly separated from the Activity and renderer.
+ * Manages the ARCore Session lifecycle, configuration, frame updates,
+ * and tracks detected spatial planes.
+ * Keeps ARCore perception logic cleanly separated from Activity and Renderer.
  */
 class ArSessionManager(private val activity: Activity) {
 
@@ -35,8 +37,12 @@ class ArSessionManager(private val activity: Activity) {
     private var isSessionConfigured = false
 
     // Cached diagnostics to prevent object allocation churn
-    private var lastPoseTranslation = FloatArray(3)
-    private var lastPoseRotation = FloatArray(4)
+    private val lastPoseTranslation = FloatArray(3)
+    private val lastPoseRotation = FloatArray(4)
+
+    // Thread-safe list of active planes for rendering
+    private val activePlanesList = mutableListOf<Plane>()
+    private val activePlanesLock = Any()
 
     interface SessionListener {
         fun onSessionInitialized(session: Session)
@@ -111,17 +117,17 @@ class ArSessionManager(private val activity: Activity) {
     }
 
     /**
-     * Configures the Session with horizontal plane finding and auto-focus.
+     * Configures the Session with horizontal and vertical plane finding and auto-focus.
      */
     private fun configureSession(session: Session) {
         val config = Config(session).apply {
-            planeFindingMode = Config.PlaneFindingMode.HORIZONTAL
+            planeFindingMode = Config.PlaneFindingMode.HORIZONTAL_AND_VERTICAL
             updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
             focusMode = Config.FocusMode.AUTO
         }
         session.configure(config)
         isSessionConfigured = true
-        Log.i(TAG, "ARCore Session configured: planeFinding=HORIZONTAL, focus=AUTO")
+        Log.i(TAG, "ARCore Session configured: planeFinding=HORIZONTAL_AND_VERTICAL, focus=AUTO")
     }
 
     /**
@@ -151,6 +157,9 @@ class ArSessionManager(private val activity: Activity) {
             }
         }
         session = null
+        synchronized(activePlanesLock) {
+            activePlanesList.clear()
+        }
     }
 
     /**
@@ -175,7 +184,7 @@ class ArSessionManager(private val activity: Activity) {
         val currentSession = session ?: return null
         return try {
             val frame = currentSession.update()
-            extractDiagnostics(frame)
+            extractDiagnostics(frame, currentSession)
             frame
         } catch (e: CameraNotAvailableException) {
             Log.w(TAG, "Camera not available during frame update")
@@ -187,9 +196,18 @@ class ArSessionManager(private val activity: Activity) {
     }
 
     /**
-     * Extracts camera pose and tracking state without per-frame garbage allocation.
+     * Returns a thread-safe snapshot of currently active, non-subsumed planes.
      */
-    private fun extractDiagnostics(frame: Frame) {
+    fun getActivePlanes(): List<Plane> {
+        synchronized(activePlanesLock) {
+            return activePlanesList.toList()
+        }
+    }
+
+    /**
+     * Extracts camera pose, tracking state, and plane geometry.
+     */
+    private fun extractDiagnostics(frame: Frame, currentSession: Session) {
         val camera: Camera = frame.camera
         val arTrackingState = camera.trackingState
 
@@ -212,9 +230,76 @@ class ArSessionManager(private val activity: Activity) {
             }
         }
 
-        val pose: Pose = camera.pose
-        pose.getTranslation(lastPoseTranslation, 0)
-        pose.getRotationQuaternion(lastPoseRotation, 0)
+        val cameraPose: Pose = camera.pose
+        cameraPose.getTranslation(lastPoseTranslation, 0)
+        cameraPose.getRotationQuaternion(lastPoseRotation, 0)
+        val cameraY = lastPoseTranslation[1]
+
+        // --- Spatial Plane Processing ---
+        val allPlanes = currentSession.getAllTrackables(Plane::class.java)
+        var totalActivePlanes = 0
+        var horizUpCount = 0
+        var horizDownCount = 0
+        var vertCount = 0
+
+        var maxArea = 0f
+        var maxExtentX = 0f
+        var maxExtentZ = 0f
+        var candidateFloorHeightY = 0f
+        var hasCandidateFloor = false
+
+        val currentActiveList = mutableListOf<Plane>()
+
+        for (plane in allPlanes) {
+            // Filter out planes that have been subsumed (merged into a larger plane)
+            // or are not currently actively tracking
+            if (plane.subsumedBy != null || plane.trackingState != TrackingState.TRACKING) {
+                continue
+            }
+
+            totalActivePlanes++
+            currentActiveList.add(plane)
+
+            when (plane.type) {
+                Plane.Type.HORIZONTAL_UPWARD_FACING -> {
+                    horizUpCount++
+                    val area = plane.extentX * plane.extentZ
+                    if (area > maxArea) {
+                        maxArea = area
+                        maxExtentX = plane.extentX
+                        maxExtentZ = plane.extentZ
+
+                        // Candidate large surface heuristic:
+                        // Large upward horizontal plane situated below the camera
+                        val planeCenterY = plane.centerPose.ty()
+                        if (area >= 0.20f && planeCenterY < cameraY) {
+                            hasCandidateFloor = true
+                            candidateFloorHeightY = planeCenterY
+                        }
+                    }
+                }
+                Plane.Type.HORIZONTAL_DOWNWARD_FACING -> horizDownCount++
+                Plane.Type.VERTICAL -> vertCount++
+                else -> {}
+            }
+        }
+
+        synchronized(activePlanesLock) {
+            activePlanesList.clear()
+            activePlanesList.addAll(currentActiveList)
+        }
+
+        val planeDiagnostics = PlaneDiagnostics(
+            totalPlanes = totalActivePlanes,
+            horizontalUpwardCount = horizUpCount,
+            horizontalDownwardCount = horizDownCount,
+            verticalCount = vertCount,
+            largestPlaneWidth = maxExtentX,
+            largestPlaneDepth = maxExtentZ,
+            largestPlaneArea = maxArea,
+            hasCandidateLargeSurface = hasCandidateFloor,
+            candidateSurfaceHeightY = candidateFloorHeightY
+        )
 
         val diagnostics = TrackingDiagnostics(
             status = status,
@@ -226,7 +311,8 @@ class ArSessionManager(private val activity: Activity) {
             qY = lastPoseRotation[1],
             qZ = lastPoseRotation[2],
             qW = lastPoseRotation[3],
-            frameTimestampNs = frame.timestamp
+            frameTimestampNs = frame.timestamp,
+            planes = planeDiagnostics
         )
 
         listener?.onTrackingUpdated(diagnostics)
