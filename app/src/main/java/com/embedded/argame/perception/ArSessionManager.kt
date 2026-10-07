@@ -15,12 +15,20 @@ import com.google.ar.core.Pose
 import com.google.ar.core.Session
 import com.google.ar.core.TrackingFailureReason
 import com.google.ar.core.TrackingState
+import com.google.ar.core.Coordinates2d
 import com.google.ar.core.exceptions.CameraNotAvailableException
+import com.google.ar.core.exceptions.DeadlineExceededException
+import com.google.ar.core.exceptions.NotTrackingException
+import com.google.ar.core.exceptions.NotYetAvailableException
+import com.google.ar.core.exceptions.ResourceExhaustedException
 import com.google.ar.core.exceptions.UnavailableApkTooOldException
 import com.google.ar.core.exceptions.UnavailableArcoreNotInstalledException
 import com.google.ar.core.exceptions.UnavailableDeviceNotCompatibleException
 import com.google.ar.core.exceptions.UnavailableSdkTooOldException
 import com.google.ar.core.exceptions.UnavailableUserDeclinedInstallationException
+import com.embedded.argame.rendering.DepthHeatmapRenderer
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicReference
 
@@ -56,6 +64,34 @@ class ArSessionManager(private val activity: Activity) {
     private var activeAnchorStatus = AnchorStatus.NONE
     private var lastHitMessage = "Tap detected plane to place 3D marker"
     private val anchorLock = Any()
+
+    // Depth perception state
+    var isDepthSupported = false
+        private set
+    var isDepthViewEnabled = false
+
+    private var currentDepthDiagnostics = DepthDiagnostics(status = DepthStatus.WAITING)
+    private var lastDepthSampleTimeNs = 0L
+    private val depthSampleIntervalNs = 100_000_000L // 10 Hz throttled depth sampling
+    private var depthUpdateFrameCount = 0
+    private var lastDepthRateTimestampNs = 0L
+    private var currentDepthHz = 0f
+
+    // Heatmap buffer for DepthHeatmapRenderer (max 320x240x4 bytes)
+    private val heatmapByteBuffer: ByteBuffer = ByteBuffer.allocateDirect(320 * 240 * 4).order(ByteOrder.nativeOrder())
+    private var heatmapWidth = 0
+    private var heatmapHeight = 0
+    private var hasNewHeatmapData = false
+    private val heatmapLock = Any()
+
+    // Persistent Raw Depth diagnostic status
+    private var lastRawDepthAvailable = false
+    private var lastRawDepthValidPercent = 0f
+    private var lastRawDepthTimestampNs = 0L
+
+    // Cached point sampling arrays to prevent allocation churn
+    private val sampleInCoords = FloatArray(2)
+    private val sampleOutCoords = FloatArray(2)
 
     interface SessionListener {
         fun onSessionInitialized(session: Session)
@@ -130,17 +166,23 @@ class ArSessionManager(private val activity: Activity) {
     }
 
     /**
-     * Configures the Session with horizontal and vertical plane finding and auto-focus.
+     * Configures the Session with horizontal/vertical planes, auto-focus, and Depth API (if supported).
      */
     private fun configureSession(session: Session) {
+        isDepthSupported = session.isDepthModeSupported(Config.DepthMode.AUTOMATIC)
         val config = Config(session).apply {
             planeFindingMode = Config.PlaneFindingMode.HORIZONTAL_AND_VERTICAL
             updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
             focusMode = Config.FocusMode.AUTO
+            depthMode = if (isDepthSupported) {
+                Config.DepthMode.AUTOMATIC
+            } else {
+                Config.DepthMode.DISABLED
+            }
         }
         session.configure(config)
         isSessionConfigured = true
-        Log.i(TAG, "ARCore Session configured: planeFinding=HORIZONTAL_AND_VERTICAL, focus=AUTO")
+        Log.i(TAG, "ARCore Session configured: planeFinding=HORIZONTAL_AND_VERTICAL, focus=AUTO, depthMode=${config.depthMode}, isDepthSupported=$isDepthSupported")
     }
 
     /**
@@ -196,13 +238,14 @@ class ArSessionManager(private val activity: Activity) {
 
     /**
      * Called on the GL render thread on every frame.
-     * Updates ARCore state, processes queued screen taps, and returns the current Frame.
+     * Updates ARCore state, processes queued screen taps, samples depth, and returns the current Frame.
      */
     fun updateFrame(): Frame? {
         val currentSession = session ?: return null
         return try {
             val frame = currentSession.update()
             processQueuedTap(frame)
+            processDepthFrame(frame)
             extractDiagnostics(frame, currentSession)
             frame
         } catch (e: CameraNotAvailableException) {
@@ -211,6 +254,18 @@ class ArSessionManager(private val activity: Activity) {
         } catch (e: Exception) {
             Log.e(TAG, "Exception during ARCore session.update()", e)
             null
+        }
+    }
+
+    /**
+     * Synchronizes the latest processed false-color depth buffer with the GL DepthHeatmapRenderer.
+     */
+    fun syncDepthHeatmap(renderer: DepthHeatmapRenderer) {
+        synchronized(heatmapLock) {
+            if (hasNewHeatmapData && heatmapWidth > 0 && heatmapHeight > 0) {
+                renderer.updateTexture(heatmapWidth, heatmapHeight, heatmapByteBuffer)
+                hasNewHeatmapData = false
+            }
         }
     }
 
@@ -494,10 +549,278 @@ class ArSessionManager(private val activity: Activity) {
             qW = lastPoseRotation[3],
             frameTimestampNs = frame.timestamp,
             planes = planeDiagnostics,
-            anchor = anchorDiagnostics
+            anchor = anchorDiagnostics,
+            depth = currentDepthDiagnostics
         )
 
         listener?.onTrackingUpdated(diagnostics)
+    }
+
+    /**
+     * Acquires and samples the 16-bit depth image, computes depth statistics,
+     * extracts point samples and camera intrinsics, and generates false-color heatmap pixels.
+     * Throttled to 10 Hz to maintain ~60 FPS rendering.
+     */
+    private fun processDepthFrame(frame: Frame) {
+        val now = System.nanoTime()
+        if (now - lastDepthSampleTimeNs < depthSampleIntervalNs) {
+            return
+        }
+        lastDepthSampleTimeNs = now
+
+        if (!isDepthSupported) {
+            currentDepthDiagnostics = DepthDiagnostics(
+                isSupported = false,
+                status = DepthStatus.UNSUPPORTED,
+                statusMessage = "Depth API unsupported"
+            )
+            return
+        }
+
+        if (frame.camera.trackingState != TrackingState.TRACKING) {
+            currentDepthDiagnostics = DepthDiagnostics(
+                isSupported = true,
+                status = DepthStatus.TRACKING_PAUSED,
+                statusMessage = "Tracking paused"
+            )
+            return
+        }
+
+        try {
+            frame.acquireDepthImage16Bits().use { depthImage ->
+                val plane = depthImage.planes[0]
+                val buffer = plane.buffer.order(ByteOrder.nativeOrder())
+                val rowStride = plane.rowStride
+                val pixelStride = plane.pixelStride
+                val imgWidth = depthImage.width
+                val imgHeight = depthImage.height
+                val timestamp = depthImage.timestamp
+
+                if (depthUpdateFrameCount % 10 == 0) {
+                    val off = (imgHeight / 2) * rowStride + (imgWidth / 2) * pixelStride
+                    val b0 = buffer.get(off).toInt() and 0xFF
+                    val b1 = buffer.get(off + 1).toInt() and 0xFF
+                    val le = (b1 shl 8) or b0
+                    val be = (b0 shl 8) or b1
+                    Log.i(TAG, "Depth bytes at center: b0=0x%02X, b1=0x%02X => LE=%d mm (%.2fm), BE=%d mm (%.2fm)".format(
+                        Locale.US, b0, b1, le, le / 1000f, be, be / 1000f
+                    ))
+                }
+
+                // 1. Grid downsampling (step = 2) for heatmap texture and depth statistics
+                val step = 2
+                val outW = imgWidth / step
+                val outH = imgHeight / step
+
+                var validSamples = 0
+                var totalSamples = 0
+                var minDepthMm = Int.MAX_VALUE
+                var maxDepthMm = 0
+                var sumDepthMm = 0L
+
+                synchronized(heatmapLock) {
+                    heatmapByteBuffer.clear()
+                    for (y in 0 until imgHeight step step) {
+                        for (x in 0 until imgWidth step step) {
+                            totalSamples++
+                            val offset = y * rowStride + x * pixelStride
+                            val depthMm = buffer.getShort(offset).toInt() and 0xFFFF
+
+                            // Filter valid metric depth range (0.1m to 20m)
+                            if (depthMm in 100..20000) {
+                                validSamples++
+                                if (depthMm < minDepthMm) minDepthMm = depthMm
+                                if (depthMm > maxDepthMm) maxDepthMm = depthMm
+                                sumDepthMm += depthMm
+
+                                // Calibrated False-Color Heatmap:
+                                // Near (<0.7m): Red/Orange -> Mid (0.7-1.6m): Amber/Yellow -> Mid-Far (1.6-3.0m): Green/Cyan -> Far (>3.0m): Blue/Purple
+                                val r: Byte
+                                val g: Byte
+                                val b: Byte
+                                val a: Byte = 210.toByte()
+
+                                when {
+                                    depthMm < 700 -> {
+                                        // 0.1m - 0.7m (Near foreground / Red -> Orange)
+                                        val t = (depthMm - 100).coerceIn(0, 600) / 600f
+                                        r = 255.toByte()
+                                        g = (t * 130).toInt().toByte()
+                                        b = 20.toByte()
+                                    }
+                                    depthMm < 1600 -> {
+                                        // 0.7m - 1.6m (Tables, desk, nearby furniture / Orange -> Yellow)
+                                        val t = (depthMm - 700) / 900f
+                                        r = ((1f - t * 0.25f) * 255).toInt().toByte()
+                                        g = 230.toByte()
+                                        b = 30.toByte()
+                                    }
+                                    depthMm < 3000 -> {
+                                        // 1.6m - 3.0m (Floor, middle range / Yellow-Green -> Emerald)
+                                        val t = (depthMm - 1600) / 1400f
+                                        r = ((1f - t) * 190).toInt().toByte()
+                                        g = 240.toByte()
+                                        b = (t * 180).toInt().toByte()
+                                    }
+                                    depthMm < 4500 -> {
+                                        // 3.0m - 4.5m (Room walls / Cyan -> Blue)
+                                        val t = (depthMm - 3000) / 1500f
+                                        r = 20.toByte()
+                                        g = ((1f - t * 0.7f) * 240).toInt().toByte()
+                                        b = 255.toByte()
+                                    }
+                                    else -> {
+                                        // > 4.5m (Far background / Indigo -> Purple)
+                                        val t = ((depthMm - 4500) / 3000f).coerceIn(0f, 1f)
+                                        r = (t * 180 + 30).toInt().toByte()
+                                        g = 40.toByte()
+                                        b = 255.toByte()
+                                    }
+                                }
+                                heatmapByteBuffer.put(r).put(g).put(b).put(a)
+                            } else {
+                                // Invalid / no depth estimate: transparent pixel
+                                heatmapByteBuffer.put(0.toByte()).put(0.toByte()).put(0.toByte()).put(0.toByte())
+                            }
+                        }
+                    }
+                    heatmapByteBuffer.flip()
+                    heatmapWidth = outW
+                    heatmapHeight = outH
+                    hasNewHeatmapData = true
+                }
+
+                val validPercent = if (totalSamples > 0) (validSamples * 100f / totalSamples) else 0f
+                val minMeters = if (validSamples > 0) minDepthMm / 1000f else 0f
+                val maxMeters = if (validSamples > 0) maxDepthMm / 1000f else 0f
+                val meanMeters = if (validSamples > 0) (sumDepthMm / validSamples) / 1000f else 0f
+
+                // 2. Specific Screen Point Sampling (Center, TL, TR, BL, BR)
+                val testPoints = listOf(
+                    Pair("Center", Pair(0.5f, 0.5f)),
+                    Pair("Top-Left", Pair(0.25f, 0.25f)),
+                    Pair("Top-Right", Pair(0.75f, 0.25f)),
+                    Pair("Bottom-Left", Pair(0.25f, 0.75f)),
+                    Pair("Bottom-Right", Pair(0.75f, 0.75f))
+                )
+
+                val pointSamples = mutableListOf<DepthPointSample>()
+                var centerDepthMeters = 0f
+
+                for ((label, normCoord) in testPoints) {
+                    sampleInCoords[0] = normCoord.first
+                    sampleInCoords[1] = normCoord.second
+                    frame.transformCoordinates2d(
+                        Coordinates2d.VIEW_NORMALIZED,
+                        sampleInCoords,
+                        Coordinates2d.IMAGE_PIXELS,
+                        sampleOutCoords
+                    )
+                    val px = sampleOutCoords[0].toInt().coerceIn(0, imgWidth - 1)
+                    val py = sampleOutCoords[1].toInt().coerceIn(0, imgHeight - 1)
+                    val sampleOffset = py * rowStride + px * pixelStride
+                    val ptMm = buffer.getShort(sampleOffset).toInt() and 0xFFFF
+                    val ptM = ptMm / 1000f
+                    val isValid = ptMm in 100..20000
+                    if (label == "Center" && isValid) {
+                        centerDepthMeters = ptM
+                    }
+                    pointSamples.add(DepthPointSample(label, normCoord.first, normCoord.second, ptM, isValid))
+                }
+
+                // 3. Update sampling frequency
+                depthUpdateFrameCount++
+                val rateElapsed = now - lastDepthRateTimestampNs
+                if (rateElapsed >= 1_000_000_000L) {
+                    currentDepthHz = (depthUpdateFrameCount * 1_000_000_000f) / rateElapsed
+                    depthUpdateFrameCount = 0
+                    lastDepthRateTimestampNs = now
+                }
+
+                // 4. Raw Depth Investigation (Check every 5 frames = ~2 Hz)
+                if (depthUpdateFrameCount % 5 == 0) {
+                    try {
+                        frame.acquireRawDepthImage16Bits().use { rawImage ->
+                            val rPlane = rawImage.planes[0]
+                            val rBuf = rPlane.buffer.order(ByteOrder.nativeOrder())
+                            val rRowStride = rPlane.rowStride
+                            val rPixStride = rPlane.pixelStride
+                            var rValid = 0
+                            var rTotal = 0
+                            for (ry in 0 until rawImage.height step 4) {
+                                for (rx in 0 until rawImage.width step 4) {
+                                    rTotal++
+                                    val rOff = ry * rRowStride + rx * rPixStride
+                                    val rDepth = rBuf.getShort(rOff).toInt() and 0xFFFF
+                                    if (rDepth in 100..20000) {
+                                        rValid++
+                                    }
+                                }
+                            }
+                            lastRawDepthValidPercent = if (rTotal > 0) (rValid * 100f / rTotal) else 0f
+                            lastRawDepthAvailable = true
+                            lastRawDepthTimestampNs = rawImage.timestamp
+
+                            // Verify confidence image acquisition and release
+                            try {
+                                frame.acquireRawDepthConfidenceImage().use { }
+                            } catch (ignored: Exception) {}
+                        }
+                    } catch (e: Exception) {
+                        // Raw depth may not yet be available on this frame; retain last status
+                    }
+                }
+
+                // 5. Camera Intrinsics
+                val intrinsics = frame.camera.imageIntrinsics
+                val intrinsicsData = CameraIntrinsicsData(
+                    fx = intrinsics.focalLength[0],
+                    fy = intrinsics.focalLength[1],
+                    cx = intrinsics.principalPoint[0],
+                    cy = intrinsics.principalPoint[1],
+                    width = intrinsics.imageDimensions[0],
+                    height = intrinsics.imageDimensions[1]
+                )
+
+                currentDepthDiagnostics = DepthDiagnostics(
+                    isSupported = true,
+                    status = DepthStatus.READY,
+                    imageWidth = imgWidth,
+                    imageHeight = imgHeight,
+                    validSamplePercent = validPercent,
+                    minDepthMeters = minMeters,
+                    maxDepthMeters = maxMeters,
+                    meanDepthMeters = meanMeters,
+                    centerDepthMeters = centerDepthMeters,
+                    rawDepthAvailable = lastRawDepthAvailable,
+                    rawDepthValidPercent = lastRawDepthValidPercent,
+                    depthUpdateHz = currentDepthHz,
+                    timestampNs = timestamp,
+                    pointSamples = pointSamples,
+                    intrinsics = intrinsicsData,
+                    statusMessage = "Depth READY (${imgWidth}x${imgHeight})"
+                )
+            }
+        } catch (e: NotYetAvailableException) {
+            currentDepthDiagnostics = DepthDiagnostics(
+                isSupported = true,
+                status = DepthStatus.WAITING,
+                statusMessage = "Depth WAITING"
+            )
+        } catch (e: NotTrackingException) {
+            currentDepthDiagnostics = DepthDiagnostics(
+                isSupported = true,
+                status = DepthStatus.TRACKING_PAUSED,
+                statusMessage = "Tracking paused"
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Exception during depth acquisition: ${e.message}")
+            currentDepthDiagnostics = DepthDiagnostics(
+                isSupported = isDepthSupported,
+                status = DepthStatus.ERROR,
+                statusMessage = "Depth: ${e.message}"
+            )
+        }
     }
 
     private fun notifyError(message: String, fatal: Boolean) {
