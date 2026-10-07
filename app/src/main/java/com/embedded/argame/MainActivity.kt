@@ -8,6 +8,8 @@ import android.opengl.GLSurfaceView
 import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
+import android.view.GestureDetector
+import android.view.MotionEvent
 import android.view.View
 import android.widget.Button
 import android.widget.TextView
@@ -15,7 +17,9 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import com.embedded.argame.perception.AnchorStatus
 import com.embedded.argame.perception.ArSessionManager
+import com.embedded.argame.perception.TrackedPlaneType
 import com.embedded.argame.perception.TrackingDiagnostics
 import com.embedded.argame.perception.TrackingStatus
 import com.embedded.argame.rendering.ArRenderer
@@ -41,6 +45,10 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
     private lateinit var tvPlanesSummary: TextView
     private lateinit var tvLargestPlane: TextView
     private lateinit var tvCandidateFloor: TextView
+    private lateinit var tvAnchorStatus: TextView
+    private lateinit var tvAnchorPose: TextView
+    private lateinit var tvAnchorSurface: TextView
+    private lateinit var btnResetAnchor: Button
     private lateinit var tvPerformance: TextView
     private lateinit var permissionRationaleContainer: View
     private lateinit var btnGrantPermission: Button
@@ -85,9 +93,17 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
         tvPlanesSummary = findViewById(R.id.tvPlanesSummary)
         tvLargestPlane = findViewById(R.id.tvLargestPlane)
         tvCandidateFloor = findViewById(R.id.tvCandidateFloor)
+        tvAnchorStatus = findViewById(R.id.tvAnchorStatus)
+        tvAnchorPose = findViewById(R.id.tvAnchorPose)
+        tvAnchorSurface = findViewById(R.id.tvAnchorSurface)
+        btnResetAnchor = findViewById(R.id.btnResetAnchor)
         tvPerformance = findViewById(R.id.tvPerformance)
         permissionRationaleContainer = findViewById(R.id.permissionRationaleContainer)
         btnGrantPermission = findViewById(R.id.btnGrantPermission)
+
+        btnResetAnchor.setOnClickListener {
+            sessionManager.resetAnchor()
+        }
 
         btnGrantPermission.setOnClickListener {
             if (shouldShowRequestPermissionRationale(Manifest.permission.CAMERA)) {
@@ -109,6 +125,21 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
 
         surfaceView.setRenderer(arRenderer)
         surfaceView.renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
+
+        // Handle touch tap gestures on the AR camera surface
+        val gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onSingleTapUp(e: MotionEvent): Boolean {
+                sessionManager.queueTap(e.x, e.y)
+                return true
+            }
+            override fun onDown(e: MotionEvent): Boolean = true
+        })
+
+        surfaceView.setOnTouchListener { v, event ->
+            gestureDetector.onTouchEvent(event)
+            v.performClick()
+            true
+        }
     }
 
     override fun onResume() {
@@ -266,6 +297,59 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
             } else {
                 tvCandidateFloor.text = "Candidate Surface: NO (Scanning...)"
                 tvCandidateFloor.setTextColor(getColor(R.color.text_secondary))
+            }
+
+            // Display Spatial Anchor & 3D Marker Telemetry
+            val a = diagnostics.anchor
+            when (a.status) {
+                AnchorStatus.TRACKING -> {
+                    tvAnchorStatus.text = "Anchor: TRACKING"
+                    tvAnchorStatus.setTextColor(getColor(R.color.accent_green))
+                    tvAnchorPose.text = String.format(
+                        Locale.US,
+                        "Pos: X: %+.3f  Y: %+.3f  Z: %+.3f m",
+                        a.posX,
+                        a.posY,
+                        a.posZ
+                    )
+                    val surfaceName = when (a.surfaceType) {
+                        TrackedPlaneType.HORIZONTAL_UPWARD_FACING -> "Horizontal ↑"
+                        TrackedPlaneType.HORIZONTAL_DOWNWARD_FACING -> "Horizontal ↓"
+                        TrackedPlaneType.VERTICAL -> "Vertical"
+                        else -> "Plane"
+                    }
+                    tvAnchorSurface.text = String.format(
+                        Locale.US,
+                        "Surface: %s  Dist: %.2f m",
+                        surfaceName,
+                        a.distanceMeters
+                    )
+                    btnResetAnchor.visibility = View.VISIBLE
+                }
+                AnchorStatus.PAUSED -> {
+                    tvAnchorStatus.text = "Anchor: PAUSED (${a.lastHitMessage})"
+                    tvAnchorStatus.setTextColor(getColor(android.R.color.holo_orange_light))
+                    btnResetAnchor.visibility = View.VISIBLE
+                }
+                AnchorStatus.STOPPED -> {
+                    tvAnchorStatus.text = "Anchor: STOPPED (${a.lastHitMessage})"
+                    tvAnchorStatus.setTextColor(getColor(android.R.color.holo_red_light))
+                    tvAnchorPose.text = "Pos: X: ---  Y: ---  Z: ---"
+                    tvAnchorSurface.text = "Surface: NONE  Dist: ---"
+                    btnResetAnchor.visibility = View.GONE
+                }
+                else -> {
+                    if (a.lastHitMessage.isNotEmpty() && a.lastHitMessage != "Tap detected plane to place 3D marker") {
+                        tvAnchorStatus.text = "Anchor: NONE (${a.lastHitMessage})"
+                        tvAnchorStatus.setTextColor(getColor(android.R.color.holo_orange_light))
+                    } else {
+                        tvAnchorStatus.text = "Anchor: NONE (Tap surface to place)"
+                        tvAnchorStatus.setTextColor(getColor(R.color.text_primary))
+                    }
+                    tvAnchorPose.text = "Pos: X: ---  Y: ---  Z: ---"
+                    tvAnchorSurface.text = "Surface: NONE  Dist: ---"
+                    btnResetAnchor.visibility = View.GONE
+                }
             }
 
             // Display Performance Telemetry
