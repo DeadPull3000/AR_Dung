@@ -32,6 +32,7 @@ class ArRenderer(
     private val backgroundRenderer = BackgroundRenderer()
     private val planeRenderer = PlaneRenderer()
     private val anchorMarkerRenderer = AnchorMarkerRenderer()
+    private val depthHeatmapRenderer = DepthHeatmapRenderer()
 
     private var viewportWidth = 0
     private var viewportHeight = 0
@@ -52,9 +53,10 @@ class ArRenderer(
         backgroundRenderer.createOnGlThread()
         planeRenderer.createOnGlThread()
         anchorMarkerRenderer.createOnGlThread()
+        depthHeatmapRenderer.createOnGlThread()
 
         sessionManager.setCameraTextureName(backgroundRenderer.textureId)
-        Log.i(TAG, "GL Surface created. Background, Plane, and Anchor Marker renderers initialized.")
+        Log.i(TAG, "GL Surface created. Background, Plane, Anchor Marker, and Depth renderers initialized.")
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -84,6 +86,12 @@ class ArRenderer(
         if (frame != null) {
             // 1. Render camera video feed background
             backgroundRenderer.draw(frame)
+
+            // 2. Render Depth Heatmap overlay if enabled by user
+            sessionManager.syncDepthHeatmap(depthHeatmapRenderer)
+            if (sessionManager.isDepthViewEnabled) {
+                depthHeatmapRenderer.draw(frame, 0.55f)
+            }
 
             // 2. Render 3D spatial planes & 3D anchor marker if camera is tracking
             val camera = frame.camera
