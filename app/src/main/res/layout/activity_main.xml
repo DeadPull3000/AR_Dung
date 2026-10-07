@@ -4,7 +4,7 @@
     android:layout_height="match_parent"
     android:background="@color/bg_dark">
 
-    <!-- ARCore OpenGL ES Camera Feed Surface View -->
+    <!-- ARCore OpenGL ES Camera Feed & 3D Planes Surface View -->
     <android.opengl.GLSurfaceView
         android:id="@+id/surfaceView"
         android:layout_width="match_parent"
@@ -25,7 +25,7 @@
             android:id="@+id/tvHeader"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="AR EMBEDDED GAME — MILESTONE 2"
+            android:text="AR EMBEDDED GAME — MILESTONE 3"
             android:textColor="@color/accent_cyan"
             android:textSize="14sp"
             android:textStyle="bold" />
@@ -34,7 +34,7 @@
             android:id="@+id/tvArcoreStatus"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
+            android:layout_marginTop="4dp"
             android:text="ARCore: INITIALIZING"
             android:textColor="@color/text_primary"
             android:textSize="13sp" />
@@ -43,52 +43,95 @@
             android:id="@+id/tvTrackingStatus"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="2dp"
             android:text="Tracking: INITIALIZING"
             android:textColor="@color/accent_green"
-            android:textSize="14sp"
+            android:textSize="13sp"
             android:textStyle="bold" />
 
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
-            android:layout_marginTop="8dp"
-            android:layout_marginBottom="8dp"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="6dp"
             android:background="#30363D" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Camera World Pose (Meters):"
+            android:text="Camera World Pose:"
             android:textColor="@color/text_secondary"
-            android:textSize="12sp"
+            android:textSize="11sp"
             android:textStyle="bold" />
 
         <TextView
             android:id="@+id/tvPosePosition"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
             android:fontFamily="monospace"
-            android:text="X: +0.000  Y: +0.000  Z: +0.000"
+            android:text="X: +0.000  Y: +0.000  Z: +0.000 m"
             android:textColor="@color/text_primary"
-            android:textSize="13sp" />
+            android:textSize="12sp" />
 
         <TextView
             android:id="@+id/tvPoseRotation"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
             android:fontFamily="monospace"
             android:text="Q: [0.00, 0.00, 0.00, 1.00]"
             android:textColor="@color/text_secondary"
-            android:textSize="12sp" />
+            android:textSize="11sp" />
 
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
-            android:layout_marginTop="8dp"
-            android:layout_marginBottom="8dp"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="6dp"
+            android:background="#30363D" />
+
+        <!-- Spatial Plane Detection Telemetry -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Detected Spatial Planes:"
+            android:textColor="@color/text_secondary"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvPlanesSummary"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:text="Total: 0 (Horiz ↑: 0 | Horiz ↓: 0 | Vert: 0)"
+            android:textColor="@color/text_primary"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/tvLargestPlane"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:fontFamily="monospace"
+            android:text="Largest: W: 0.00m  D: 0.00m  Area: 0.00 m²"
+            android:textColor="@color/text_primary"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/tvCandidateFloor"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:fontFamily="monospace"
+            android:text="Candidate Surface: NO (Scanning...)"
+            android:textColor="@color/text_secondary"
+            android:textSize="11sp" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="6dp"
             android:background="#30363D" />
 
         <TextView
@@ -96,9 +139,9 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:fontFamily="monospace"
-            android:text="FPS: 0.0 | Target: Samsung Galaxy Tab S8+"
+            android:text="FPS: 0.0 | Samsung Galaxy Tab S8+"
             android:textColor="@color/text_secondary"
-            android:textSize="12sp" />
+            android:textSize="11sp" />
 
     </LinearLayout>
 

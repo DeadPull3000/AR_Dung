@@ -38,6 +38,9 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
     private lateinit var tvTrackingStatus: TextView
     private lateinit var tvPosePosition: TextView
     private lateinit var tvPoseRotation: TextView
+    private lateinit var tvPlanesSummary: TextView
+    private lateinit var tvLargestPlane: TextView
+    private lateinit var tvCandidateFloor: TextView
     private lateinit var tvPerformance: TextView
     private lateinit var permissionRationaleContainer: View
     private lateinit var btnGrantPermission: Button
@@ -79,6 +82,9 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
         tvTrackingStatus = findViewById(R.id.tvTrackingStatus)
         tvPosePosition = findViewById(R.id.tvPosePosition)
         tvPoseRotation = findViewById(R.id.tvPoseRotation)
+        tvPlanesSummary = findViewById(R.id.tvPlanesSummary)
+        tvLargestPlane = findViewById(R.id.tvLargestPlane)
+        tvCandidateFloor = findViewById(R.id.tvCandidateFloor)
         tvPerformance = findViewById(R.id.tvPerformance)
         permissionRationaleContainer = findViewById(R.id.permissionRationaleContainer)
         btnGrantPermission = findViewById(R.id.btnGrantPermission)
@@ -229,6 +235,38 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
                 diagnostics.qZ,
                 diagnostics.qW
             )
+
+            // Display Spatial Planes Telemetry
+            val p = diagnostics.planes
+            tvPlanesSummary.text = String.format(
+                Locale.US,
+                "Total: %d (Horiz ↑: %d | Horiz ↓: %d | Vert: %d)",
+                p.totalPlanes,
+                p.horizontalUpwardCount,
+                p.horizontalDownwardCount,
+                p.verticalCount
+            )
+
+            tvLargestPlane.text = String.format(
+                Locale.US,
+                "Largest: W: %.2fm  D: %.2fm  Area: %.2f m²",
+                p.largestPlaneWidth,
+                p.largestPlaneDepth,
+                p.largestPlaneArea
+            )
+
+            if (p.hasCandidateLargeSurface) {
+                tvCandidateFloor.text = String.format(
+                    Locale.US,
+                    "Candidate Surface: YES (Y: %+.2fm, Area: %.2fm²)",
+                    p.candidateSurfaceHeightY,
+                    p.largestPlaneArea
+                )
+                tvCandidateFloor.setTextColor(getColor(R.color.accent_green))
+            } else {
+                tvCandidateFloor.text = "Candidate Surface: NO (Scanning...)"
+                tvCandidateFloor.setTextColor(getColor(R.color.text_secondary))
+            }
 
             // Display Performance Telemetry
             tvPerformance.text = String.format(
