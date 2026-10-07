@@ -97,11 +97,13 @@ AR_Dung/
 │           ├── AndroidManifest.xml
 │           ├── java/com/embedded/argame/
 │           │   ├── MainActivity.kt
-│           │   ├── perception/    # ARCore session management & decoupled plane models
+│           │   ├── perception/    # ARCore session management & decoupled spatial models
+│           │   │   ├── AnchorData.kt
 │           │   │   ├── ArSessionManager.kt
 │           │   │   ├── PlaneData.kt
 │           │   │   └── TrackingState.kt
 │           │   └── rendering/     # Hardware-accelerated OpenGL ES 3.0 renderers
+│           │       ├── AnchorMarkerRenderer.kt
 │           │       ├── ArRenderer.kt
 │           │       ├── BackgroundRenderer.kt
 │           │       └── PlaneRenderer.kt
@@ -124,6 +126,7 @@ AR_Dung/
 ├── environment_baseline.md        # Verified toolchain baseline & status report
 ├── milestone_2_arcore.md          # Milestone 2 physical verification report
 ├── milestone_3_planes.md          # Milestone 3 plane detection & rendering verification
+├── milestone_4_hit_testing_anchors.md # Milestone 4 hit-testing & anchor verification
 ├── gradle.properties              # JVM args and AndroidX configuration
 ├── gradlew                        # Unix Gradle wrapper executable
 ├── gradlew.bat                    # Windows Gradle wrapper batch script
@@ -186,8 +189,8 @@ adb shell am start -n com.embedded.argame/.MainActivity
 | **1** | **Android Toolchain Setup & Minimal Device Deployment** | **Completed & Verified** |
 | **2** | **ARCore Session Initialization, Camera Background & 6-DOF Tracking** | **Completed & Verified (60 FPS)** |
 | **3** | **Spatial Plane Detection, Subsumption Handling & 3D Visualization** | **Completed & Verified (60 FPS)** |
-| **4** | World Coordinates & Anchored Object Transformation | Planned |
-| **5** | Spatial Mesh & Coordinate Transformation Refinements | Planned |
+| **4** | **Screen Hit-Testing, ARCore Anchors & 3D Spatial Marker** | **Completed & Verified (60 FPS)** |
+| **5** | Coordinate Systems, World Transforms & Multiple Anchored Objects | Planned |
 | **6** | ARCore Depth API Stream Visualization | Planned |
 | **7** | Real-Time Depth Map & Geometry Processing | Planned |
 | **8** | 2.5D Occupancy Grid Representation | Planned |
