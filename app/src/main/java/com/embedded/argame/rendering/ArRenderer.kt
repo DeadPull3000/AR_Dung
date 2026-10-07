@@ -3,16 +3,19 @@ package com.embedded.argame.rendering
 import android.content.Context
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
+import android.opengl.Matrix
 import android.util.Log
 import android.view.Display
 import android.view.WindowManager
 import com.embedded.argame.perception.ArSessionManager
+import com.google.ar.core.TrackingState
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
 /**
  * Custom GLSurfaceView.Renderer that drives the AR frame update loop,
- * renders the live camera background, and measures render timing.
+ * renders the live camera background, renders detected 3D spatial planes,
+ * and measures real-time performance telemetry.
  */
 class ArRenderer(
     private val context: Context,
@@ -22,12 +25,21 @@ class ArRenderer(
 
     companion object {
         private const val TAG = "ArRenderer"
+        private const val Z_NEAR = 0.1f
+        private const val Z_FAR = 100.0f
     }
 
     private val backgroundRenderer = BackgroundRenderer()
+    private val planeRenderer = PlaneRenderer()
+
     private var viewportWidth = 0
     private var viewportHeight = 0
     private var displayRotation = 0
+
+    // Matrices pre-allocated to avoid GC churn during frame render loop
+    private val viewMatrix = FloatArray(16)
+    private val projectionMatrix = FloatArray(16)
+    private val viewProjectionMatrix = FloatArray(16)
 
     // FPS calculation variables
     private var frameCount = 0
@@ -35,10 +47,12 @@ class ArRenderer(
     private var currentFps = 0.0f
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
-        GLES20.glClearColor(0.1f, 0.1f, 0.1f, 1.0f)
+        GLES20.glClearColor(0.05f, 0.05f, 0.05f, 1.0f)
         backgroundRenderer.createOnGlThread()
+        planeRenderer.createOnGlThread()
+
         sessionManager.setCameraTextureName(backgroundRenderer.textureId)
-        Log.i(TAG, "GL Surface created. Texture registered with ArSessionManager.")
+        Log.i(TAG, "GL Surface created. Background and Plane renderers initialized.")
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -66,8 +80,19 @@ class ArRenderer(
         val frame = sessionManager.updateFrame()
 
         if (frame != null) {
-            // Render the live camera background
+            // 1. Render camera video feed background
             backgroundRenderer.draw(frame)
+
+            // 2. Render 3D spatial planes if camera is tracking
+            val camera = frame.camera
+            if (camera.trackingState == TrackingState.TRACKING) {
+                camera.getViewMatrix(viewMatrix, 0)
+                camera.getProjectionMatrix(projectionMatrix, 0, Z_NEAR, Z_FAR)
+                Matrix.multiplyMM(viewProjectionMatrix, 0, projectionMatrix, 0, viewMatrix, 0)
+
+                val activePlanes = sessionManager.getActivePlanes()
+                planeRenderer.draw(activePlanes, viewProjectionMatrix)
+            }
         }
 
         // Calculate and publish FPS
