@@ -19,6 +19,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.embedded.argame.perception.AnchorStatus
 import com.embedded.argame.perception.ArSessionManager
+import com.embedded.argame.perception.DepthStatus
 import com.embedded.argame.perception.TrackedPlaneType
 import com.embedded.argame.perception.TrackingDiagnostics
 import com.embedded.argame.perception.TrackingStatus
@@ -49,6 +50,11 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
     private lateinit var tvAnchorPose: TextView
     private lateinit var tvAnchorSurface: TextView
     private lateinit var btnResetAnchor: Button
+    private lateinit var tvDepthStatus: TextView
+    private lateinit var tvDepthMetrics: TextView
+    private lateinit var tvDepthRanges: TextView
+    private lateinit var tvDepthRawIntrinsics: TextView
+    private lateinit var btnToggleDepthView: Button
     private lateinit var tvPerformance: TextView
     private lateinit var permissionRationaleContainer: View
     private lateinit var btnGrantPermission: Button
@@ -97,12 +103,26 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
         tvAnchorPose = findViewById(R.id.tvAnchorPose)
         tvAnchorSurface = findViewById(R.id.tvAnchorSurface)
         btnResetAnchor = findViewById(R.id.btnResetAnchor)
+        tvDepthStatus = findViewById(R.id.tvDepthStatus)
+        tvDepthMetrics = findViewById(R.id.tvDepthMetrics)
+        tvDepthRanges = findViewById(R.id.tvDepthRanges)
+        tvDepthRawIntrinsics = findViewById(R.id.tvDepthRawIntrinsics)
+        btnToggleDepthView = findViewById(R.id.btnToggleDepthView)
         tvPerformance = findViewById(R.id.tvPerformance)
         permissionRationaleContainer = findViewById(R.id.permissionRationaleContainer)
         btnGrantPermission = findViewById(R.id.btnGrantPermission)
 
         btnResetAnchor.setOnClickListener {
             sessionManager.resetAnchor()
+        }
+
+        btnToggleDepthView.setOnClickListener {
+            sessionManager.isDepthViewEnabled = !sessionManager.isDepthViewEnabled
+            btnToggleDepthView.text = if (sessionManager.isDepthViewEnabled) {
+                "DEPTH HEATMAP: ON"
+            } else {
+                "DEPTH HEATMAP: OFF"
+            }
         }
 
         btnGrantPermission.setOnClickListener {
@@ -350,6 +370,80 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
                     tvAnchorSurface.text = "Surface: NONE  Dist: ---"
                     btnResetAnchor.visibility = View.GONE
                 }
+            }
+
+            // Display Depth Perception Telemetry
+            val d = diagnostics.depth
+            val depthSuppText = if (d.isSupported) "SUPPORTED" else "UNSUPPORTED"
+            val depthStateText = when (d.status) {
+                DepthStatus.READY -> "READY"
+                DepthStatus.WAITING -> "WAITING"
+                DepthStatus.TRACKING_PAUSED -> "PAUSED (tracking paused)"
+                DepthStatus.UNSUPPORTED -> "UNSUPPORTED"
+                DepthStatus.ERROR -> "ERROR (${d.statusMessage})"
+            }
+            tvDepthStatus.text = "Depth: $depthSuppText | State: $depthStateText"
+            when (d.status) {
+                DepthStatus.READY -> tvDepthStatus.setTextColor(getColor(R.color.accent_green))
+                DepthStatus.WAITING -> tvDepthStatus.setTextColor(getColor(android.R.color.holo_orange_light))
+                DepthStatus.TRACKING_PAUSED -> tvDepthStatus.setTextColor(getColor(android.R.color.holo_orange_light))
+                DepthStatus.UNSUPPORTED -> tvDepthStatus.setTextColor(getColor(R.color.text_secondary))
+                DepthStatus.ERROR -> tvDepthStatus.setTextColor(getColor(android.R.color.holo_red_light))
+            }
+
+            if (d.imageWidth > 0 && d.imageHeight > 0) {
+                tvDepthMetrics.text = String.format(
+                    Locale.US,
+                    "Image: %d×%d | Valid: %.1f%% | Rate: %.1f Hz",
+                    d.imageWidth,
+                    d.imageHeight,
+                    d.validSamplePercent,
+                    d.depthUpdateHz
+                )
+            } else {
+                tvDepthMetrics.text = String.format(
+                    Locale.US,
+                    "Image: --- | Valid: --- | Rate: %.1f Hz",
+                    d.depthUpdateHz
+                )
+            }
+
+            if (d.status == DepthStatus.READY && d.validSamplePercent > 0f) {
+                val centerStr = if (d.centerDepthMeters > 0f) String.format(Locale.US, "%.2fm", d.centerDepthMeters) else "---"
+                tvDepthRanges.text = String.format(
+                    Locale.US,
+                    "Center: %s | Min: %.2fm | Max: %.2fm | Mean: %.2fm",
+                    centerStr,
+                    d.minDepthMeters,
+                    d.maxDepthMeters,
+                    d.meanDepthMeters
+                )
+            } else {
+                tvDepthRanges.text = "Center: --- | Min: --- | Max: --- | Mean: ---"
+            }
+
+            val rawStr = if (d.rawDepthAvailable) {
+                String.format(Locale.US, "AVAILABLE (%.0f%%)", d.rawDepthValidPercent)
+            } else {
+                "UNAVAILABLE"
+            }
+            val intr = d.intrinsics
+            if (intr.fx > 0f) {
+                tvDepthRawIntrinsics.text = String.format(
+                    Locale.US,
+                    "Raw: %s | fx: %.1f fy: %.1f (w:%d h:%d)",
+                    rawStr,
+                    intr.fx,
+                    intr.fy,
+                    intr.width,
+                    intr.height
+                )
+            } else {
+                tvDepthRawIntrinsics.text = String.format(
+                    Locale.US,
+                    "Raw: %s | Intrinsics: waiting...",
+                    rawStr
+                )
             }
 
             // Display Performance Telemetry

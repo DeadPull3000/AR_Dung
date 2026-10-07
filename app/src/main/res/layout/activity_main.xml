@@ -25,7 +25,7 @@
             android:id="@+id/tvHeader"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="AR EMBEDDED GAME — MILESTONE 4"
+            android:text="AR EMBEDDED GAME — MILESTONE 5"
             android:textColor="@color/accent_cyan"
             android:textSize="14sp"
             android:textStyle="bold" />
@@ -183,6 +183,72 @@
             android:textSize="11sp"
             android:textStyle="bold"
             android:visibility="gone" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="6dp"
+            android:background="#30363D" />
+
+        <!-- Depth Perception Telemetry -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Depth Perception Telemetry:"
+            android:textColor="@color/text_secondary"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvDepthStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:text="Depth: INITIALIZING"
+            android:textColor="@color/text_primary"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/tvDepthMetrics"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:fontFamily="monospace"
+            android:text="Image: --- | Valid: --- | Rate: --- Hz"
+            android:textColor="@color/text_secondary"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/tvDepthRanges"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:fontFamily="monospace"
+            android:text="Center: --- m | Min: --- | Max: ---"
+            android:textColor="@color/text_secondary"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/tvDepthRawIntrinsics"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:fontFamily="monospace"
+            android:text="Raw: --- | fx: --- fy: ---"
+            android:textColor="@color/text_secondary"
+            android:textSize="10sp" />
+
+        <Button
+            android:id="@+id/btnToggleDepthView"
+            android:layout_width="match_parent"
+            android:layout_height="36dp"
+            android:layout_marginTop="6dp"
+            android:backgroundTint="#21262D"
+            android:text="DEPTH HEATMAP: OFF"
+            android:textColor="@color/accent_cyan"
+            android:textSize="11sp"
+            android:textStyle="bold" />
 
         <View
             android:layout_width="match_parent"
