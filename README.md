@@ -100,7 +100,10 @@ AR_Dung/
 │           │   │   ├── FloorReference.kt
 │           │   │   ├── GridCellState.kt
 │           │   │   ├── GridDiagnostics.kt
-│           │   │   └── OccupancyGrid.kt
+│           │   │   ├── ObstacleInflater.kt
+│           │   │   ├── OccupancyGrid.kt
+│           │   │   ├── SpatialFilter.kt
+│           │   │   └── TraversalCostGrid.kt
 │           │   ├── perception/    # ARCore session management & decoupled spatial models
 │           │   │   ├── AnchorData.kt
 │           │   │   ├── ArSessionManager.kt
@@ -128,6 +131,7 @@ AR_Dung/
 │   ├── milestone_4_hit_testing_anchors.md # Milestone 4 hit-testing & anchor verification
 │   ├── milestone_5_depth.md       # Milestone 5 16-bit depth & heatmap verification
 │   ├── milestone_6_occupancy_grid.md # Milestone 6 2.5D occupancy grid verification
+│   ├── milestone_7_spatial_filtering_inflation.md # Milestone 7 filtering, inflation & cost grid
 │   ├── software_architecture.md   # System modules, data flow, and contracts
 │   └── screenshots/               # On-device physical verification captures
 ├── gradle/wrapper/                # Gradle wrapper binaries & properties
@@ -199,16 +203,15 @@ adb shell am start -n com.embedded.argame/.MainActivity
 | **4** | **Screen Hit-Testing, ARCore Anchors & 3D Spatial Marker** | **Completed & Verified (60 FPS)** |
 | **5** | **ARCore Depth Perception, 16-Bit Sampling & False-Color Heatmap** | **Completed & Verified (60 FPS)** |
 | **6** | **2.5D Occupancy Grid Representation & Spatial Discretization** | **Completed & Verified (60 FPS, 9.2 Hz grid)** |
-| **7** | Real-Time Depth Map & Geometry Processing | Planned |
-| **8** | 2.5D Occupancy Grid Representation | Planned |
-| **9** | Custom A* Pathfinding with Obstacle Inflation | Planned |
-| **10** | Virtual Agent World Placement & Path Following | Planned |
-| **11** | Autonomous Agent Finite-State Machine (FSM) | Planned |
-| **12** | Depth-Aware Shader Occlusion of Virtual Objects | Planned |
-| **13** | Procedural Dungeon Generation on Physical Grid | Planned |
-| **14** | Intelligent AI Behaviors (Chase, Search, Cover) | Planned |
-| **15** | Embedded Systems Telemetry (FPS, CPU, Thermals, Battery) | Planned |
-| **16** | Course Project Final Polish & Interactive Gameplay | Planned |
+| **7** | **Spatial Filtering, Obstacle Inflation & Traversal Cost Matrix** | **Completed & Verified (60 FPS, 9.2 Hz grid, 1.8 ms latency)** |
+| **8** | Custom A* Pathfinding on Traversal Cost Grid | Planned |
+| **9** | Virtual Agent World Placement & Path Following | Planned |
+| **10** | Autonomous Agent Finite-State Machine (FSM) | Planned |
+| **11** | Depth-Aware Shader Occlusion of Virtual Objects | Planned |
+| **12** | Procedural Dungeon Generation on Physical Grid | Planned |
+| **13** | Intelligent AI Behaviors (Chase, Search, Cover) | Planned |
+| **14** | Embedded Systems Telemetry (FPS, CPU, Thermals, Battery) | Planned |
+| **15** | Course Project Final Polish & Interactive Gameplay | Planned |
 
 ---
 

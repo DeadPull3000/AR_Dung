@@ -29,7 +29,8 @@ The MVP is the smallest complete end-to-end slice demonstrating the core feedbac
   - *Status:* COMPLETED & VERIFIED on physical tablet at 59.9 FPS (160x90 depth resolution, 100% dense coverage with motion, stable metric readings).
 - **Milestone 6:** 2.5D Occupancy grid construction (Converting 16-bit depth point cloud and plane geometry into a stable, bounded 8.0m x 8.0m 2.5D occupancy map at 0.10m resolution, floor reference frame anchoring, height-band obstacle classification, evidence accumulation/decay, OpenGL ES 3.0 world-space floor grid renderer, real-time telemetry).
   - *Status:* COMPLETED & VERIFIED on physical tablet at 60.0 FPS rendering, 9.1-9.3 Hz grid update rate, verified across all 6 physical test cases.
-- **Milestone 7:** Depth/geometry processing (Background depth buffer extraction and spatial filtering).
+- **Milestone 7:** Spatial filtering, obstacle inflation & traversal cost grid (Separating raw from filtered occupancy, conservative noise filtering, agent radius dilation, compact traversal cost matrix, 4-stage perception pipeline, 4-way visual display modes, verified on physical hardware).
+  - *Status:* COMPLETED & VERIFIED on physical tablet at 59.8-60.3 FPS rendering, 9.0-9.4 Hz grid updates, 1.5-2.3 ms processing time, verified across Tests A through G.
 - **Milestone 8:** Occupancy grid (Constructing and updating 2.5D occupancy map).
 - **Milestone 9:** A* navigation (Grid-based path planning with obstacle inflation).
 - **Milestone 10:** Virtual agent movement (Agent following computed waypoints).
