@@ -33,10 +33,27 @@ import com.embedded.argame.environment.UnknownCostPolicy
 import com.embedded.argame.environment.OccupancyGrid
 import com.embedded.argame.rendering.DepthHeatmapRenderer
 import com.embedded.argame.rendering.OccupancyGridRenderer
+import com.embedded.argame.rendering.PathRenderer
+import com.embedded.argame.navigation.AStarPathfinder
+import com.embedded.argame.navigation.PathResult
+import com.embedded.argame.navigation.PathStatus
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.Locale
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicReference
+
+enum class NavSelectionMode {
+    OFF,
+    SET_START,
+    SET_GOAL;
+
+    fun next(): NavSelectionMode = when (this) {
+        SET_START -> SET_GOAL
+        SET_GOAL -> OFF
+        OFF -> SET_START
+    }
+}
 
 /**
  * Manages the ARCore Session lifecycle, configuration, frame updates,
@@ -104,6 +121,23 @@ class ArSessionManager(private val activity: Activity) {
     val occupancyGrid = OccupancyGrid(cellSizeMeters = 0.10f, widthMeters = 8.0f, depthMeters = 8.0f)
     var isGridViewEnabled = true
     private var currentGridDiagnostics = GridDiagnostics()
+
+    // Milestone 8 A* Navigation Engine
+    val pathfinder = AStarPathfinder(occupancyGrid.numCellsX, occupancyGrid.numCellsZ, occupancyGrid.cellSizeMeters)
+    var navSelectionMode: NavSelectionMode = NavSelectionMode.SET_START
+    var navStartCol: Int = -1
+    var navStartRow: Int = -1
+    var navGoalCol: Int = -1
+    var navGoalRow: Int = -1
+    var hasNavStart: Boolean = false
+    var hasNavGoal: Boolean = false
+    private val navStartWorld = FloatArray(3)
+    private val navGoalWorld = FloatArray(3)
+    var latestPathResult: PathResult? = null
+        private set
+    private var hasNewPathData = false
+    private val pathLock = Any()
+    private val navExecutor = Executors.newSingleThreadExecutor()
 
     interface SessionListener {
         fun onSessionInitialized(session: Session)
@@ -234,6 +268,7 @@ class ArSessionManager(private val activity: Activity) {
         }
         floorReference.reset()
         occupancyGrid.reset()
+        clearPath()
     }
 
     /**
@@ -296,7 +331,106 @@ class ArSessionManager(private val activity: Activity) {
     fun resetGrid() {
         occupancyGrid.reset()
         floorReference.reset()
-        Log.i(TAG, "Occupancy grid and floor reference reset by user.")
+        clearPath()
+        Log.i(TAG, "Occupancy grid, floor reference, and navigation path reset by user.")
+    }
+
+    /**
+     * Cycles the active navigation selection mode: SET_START -> SET_GOAL -> OFF -> SET_START.
+     */
+    fun cycleNavMode(): NavSelectionMode {
+        navSelectionMode = navSelectionMode.next()
+        synchronized(anchorLock) {
+            lastHitMessage = when (navSelectionMode) {
+                NavSelectionMode.SET_START -> "NAV: Tap floor for START point"
+                NavSelectionMode.SET_GOAL -> "NAV: Tap floor for GOAL point"
+                NavSelectionMode.OFF -> "ANCHOR: Tap for 3D marker"
+            }
+        }
+        return navSelectionMode
+    }
+
+    /**
+     * Executes A* pathfinding asynchronously on the navigation executor pool.
+     */
+    fun requestPathSearch() {
+        if (!hasNavStart || !hasNavGoal) return
+        val sCol = navStartCol
+        val sRow = navStartRow
+        val gCol = navGoalCol
+        val gRow = navGoalRow
+
+        navExecutor.execute {
+            val result = occupancyGrid.withLock {
+                pathfinder.findPath(
+                    startCol = sCol,
+                    startRow = sRow,
+                    goalCol = gCol,
+                    goalRow = gRow,
+                    costGrid = occupancyGrid.traversalCostGrid,
+                    inflatedStates = occupancyGrid.inflatedCellStates,
+                    occupancyGrid = occupancyGrid,
+                    floorReference = floorReference,
+                    gridVersion = occupancyGrid.gridVersion
+                )
+            }
+            synchronized(pathLock) {
+                latestPathResult = result
+                hasNewPathData = true
+            }
+            synchronized(anchorLock) {
+                lastHitMessage = "A* " + result.status.name + " (" + result.searchTimeMs + "ms)"
+            }
+            Log.i(TAG, "A* path calculated: status=${result.status}, raw=${result.rawCellCount}, smoothed=${result.smoothedCellCount}, cost=${result.totalCost}, time=${result.searchTimeMs}ms")
+        }
+    }
+
+    /**
+     * Re-runs A* pathfinding with current start and goal against the latest traversal cost grid.
+     */
+    fun replanPath() {
+        if (hasNavStart && hasNavGoal) {
+            requestPathSearch()
+        }
+    }
+
+    /**
+     * Clears start, goal, and active path.
+     */
+    fun clearPath() {
+        synchronized(pathLock) {
+            hasNavStart = false
+            hasNavGoal = false
+            navStartCol = -1
+            navStartRow = -1
+            navGoalCol = -1
+            navGoalRow = -1
+            latestPathResult = null
+            hasNewPathData = true
+        }
+        synchronized(anchorLock) {
+            lastHitMessage = "Navigation path cleared"
+        }
+    }
+
+    /**
+     * Synchronizes latest computed path and endpoints with PathRenderer on GL thread.
+     */
+    fun syncPath(renderer: PathRenderer) {
+        synchronized(pathLock) {
+            if (hasNewPathData) {
+                val res = latestPathResult
+                if (res != null && res.status.isSuccessful && res.worldCoordinates.isNotEmpty()) {
+                    renderer.updatePath(res)
+                } else {
+                    renderer.clear()
+                    val startCoords = if (hasNavStart) navStartWorld else null
+                    val goalCoords = if (hasNavGoal) navGoalWorld else null
+                    renderer.setEndpoints(startCoords, goalCoords)
+                }
+                hasNewPathData = false
+            }
+        }
     }
 
     /**
@@ -417,6 +551,71 @@ class ArSessionManager(private val activity: Activity) {
 
         val bestCandidate = candidates.minWithOrNull(compareBy({ it.priority }, { it.hitResult.distance }))
         if (bestCandidate != null) {
+            val hitPose = bestCandidate.hitResult.hitPose
+
+            if (navSelectionMode != NavSelectionMode.OFF) {
+                if (!floorReference.isTracking || floorReference.referencePose == null) {
+                    synchronized(anchorLock) {
+                        lastHitMessage = "Floor reference not yet established"
+                    }
+                    return
+                }
+
+                val refPose = floorReference.referencePose!!
+                val localPose = refPose.inverse().compose(hitPose)
+                val xf = localPose.tx()
+                val zf = localPose.tz()
+                val cell = occupancyGrid.floorToCell(xf, zf)
+
+                if (cell == null) {
+                    synchronized(anchorLock) {
+                        lastHitMessage = "Tap outside 8m x 8m grid bounds"
+                    }
+                    return
+                }
+
+                val (c, r) = cell
+                val cellState = occupancyGrid.getNavigationCellState(c, r)
+
+                when (navSelectionMode) {
+                    NavSelectionMode.SET_START -> {
+                        navStartCol = c
+                        navStartRow = r
+                        hasNavStart = true
+                        navStartWorld[0] = hitPose.tx()
+                        navStartWorld[1] = hitPose.ty()
+                        navStartWorld[2] = hitPose.tz()
+                        navSelectionMode = NavSelectionMode.SET_GOAL
+                        synchronized(anchorLock) {
+                            lastHitMessage = String.format(Locale.US, "Start: [%d, %d] (%s). Tap floor for Goal.", c, r, cellState.name)
+                        }
+                        synchronized(pathLock) { hasNewPathData = true }
+                        if (hasNavGoal) {
+                            requestPathSearch()
+                        }
+                    }
+                    NavSelectionMode.SET_GOAL -> {
+                        navGoalCol = c
+                        navGoalRow = r
+                        hasNavGoal = true
+                        navGoalWorld[0] = hitPose.tx()
+                        navGoalWorld[1] = hitPose.ty()
+                        navGoalWorld[2] = hitPose.tz()
+                        navSelectionMode = NavSelectionMode.SET_START
+                        synchronized(anchorLock) {
+                            lastHitMessage = String.format(Locale.US, "Goal: [%d, %d] (%s). Planning A*...", c, r, cellState.name)
+                        }
+                        synchronized(pathLock) { hasNewPathData = true }
+                        if (hasNavStart) {
+                            requestPathSearch()
+                        }
+                    }
+                    NavSelectionMode.OFF -> { /* Unreachable */ }
+                }
+                return
+            }
+
+            // Normal anchor placement when navSelectionMode == OFF
             synchronized(anchorLock) {
                 activeAnchor?.detach()
 

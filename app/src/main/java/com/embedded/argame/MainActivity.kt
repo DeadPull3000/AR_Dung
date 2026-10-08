@@ -19,9 +19,11 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.embedded.argame.environment.GridDisplayMode
 import com.embedded.argame.environment.UnknownCostPolicy
+import com.embedded.argame.navigation.PathStatus
 import com.embedded.argame.perception.AnchorStatus
 import com.embedded.argame.perception.ArSessionManager
 import com.embedded.argame.perception.DepthStatus
+import com.embedded.argame.perception.NavSelectionMode
 import com.embedded.argame.perception.TrackedPlaneType
 import com.embedded.argame.perception.TrackingDiagnostics
 import com.embedded.argame.perception.TrackingStatus
@@ -64,6 +66,12 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
     private lateinit var btnResetGrid: Button
     private lateinit var btnGridDisplayMode: Button
     private lateinit var btnToggleUnknownPolicy: Button
+    private lateinit var tvNavStatus: TextView
+    private lateinit var tvNavEndpoints: TextView
+    private lateinit var tvNavMetrics: TextView
+    private lateinit var btnNavMode: Button
+    private lateinit var btnReplanPath: Button
+    private lateinit var btnClearPath: Button
     private lateinit var tvPerformance: TextView
     private lateinit var permissionRationaleContainer: View
     private lateinit var btnGrantPermission: Button
@@ -124,9 +132,37 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
         btnResetGrid = findViewById(R.id.btnResetGrid)
         btnGridDisplayMode = findViewById(R.id.btnGridDisplayMode)
         btnToggleUnknownPolicy = findViewById(R.id.btnToggleUnknownPolicy)
+        tvNavStatus = findViewById(R.id.tvNavStatus)
+        tvNavEndpoints = findViewById(R.id.tvNavEndpoints)
+        tvNavMetrics = findViewById(R.id.tvNavMetrics)
+        btnNavMode = findViewById(R.id.btnNavMode)
+        btnReplanPath = findViewById(R.id.btnReplanPath)
+        btnClearPath = findViewById(R.id.btnClearPath)
         tvPerformance = findViewById(R.id.tvPerformance)
         permissionRationaleContainer = findViewById(R.id.permissionRationaleContainer)
         btnGrantPermission = findViewById(R.id.btnGrantPermission)
+
+        btnNavMode.setOnClickListener {
+            val mode = sessionManager.cycleNavMode()
+            btnNavMode.text = when (mode) {
+                NavSelectionMode.SET_START -> "NAV: SET START"
+                NavSelectionMode.SET_GOAL -> "NAV: SET GOAL"
+                NavSelectionMode.OFF -> "NAV: OFF (ANCHOR)"
+            }
+            when (mode) {
+                NavSelectionMode.SET_START -> btnNavMode.setTextColor(getColor(R.color.accent_green))
+                NavSelectionMode.SET_GOAL -> btnNavMode.setTextColor(getColor(android.R.color.holo_red_light))
+                NavSelectionMode.OFF -> btnNavMode.setTextColor(getColor(R.color.text_secondary))
+            }
+        }
+
+        btnReplanPath.setOnClickListener {
+            sessionManager.replanPath()
+        }
+
+        btnClearPath.setOnClickListener {
+            sessionManager.clearPath()
+        }
 
         btnResetAnchor.setOnClickListener {
             sessionManager.resetAnchor()
@@ -529,6 +565,82 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
                 g.processingTimeMs,
                 g.updateHz
             )
+
+            // Display A* Navigation Pathfinding Telemetry
+            val navMode = sessionManager.navSelectionMode
+            val pathResult = sessionManager.latestPathResult
+
+            if (pathResult != null) {
+                when (pathResult.status) {
+                    PathStatus.SUCCESS, PathStatus.START_EQUALS_GOAL -> {
+                        tvNavStatus.text = "Status: ${pathResult.status.name} | Ver: #${pathResult.gridVersion}"
+                        tvNavStatus.setTextColor(getColor(R.color.accent_cyan))
+                    }
+                    PathStatus.START_BLOCKED, PathStatus.GOAL_BLOCKED -> {
+                        tvNavStatus.text = "Status: ${pathResult.status.name}"
+                        tvNavStatus.setTextColor(getColor(android.R.color.holo_red_light))
+                    }
+                    PathStatus.START_UNKNOWN, PathStatus.GOAL_UNKNOWN -> {
+                        tvNavStatus.text = "Status: ${pathResult.status.name} (UNK Impassable)"
+                        tvNavStatus.setTextColor(getColor(R.color.accent_purple))
+                    }
+                    PathStatus.NO_PATH -> {
+                        tvNavStatus.text = "Status: NO PATH (Obstacles block goal)"
+                        tvNavStatus.setTextColor(getColor(android.R.color.holo_orange_light))
+                    }
+                    else -> {
+                        tvNavStatus.text = "Status: ${pathResult.status.name}"
+                        tvNavStatus.setTextColor(getColor(R.color.text_secondary))
+                    }
+                }
+
+                tvNavMetrics.text = String.format(
+                    Locale.US,
+                    "Path: %d cells (%d smooth, %.2fm) | Cost: %.2f | Exp: %d (%.2fms)",
+                    pathResult.rawCellCount,
+                    pathResult.smoothedCellCount,
+                    pathResult.totalDistanceMeters,
+                    pathResult.totalCost,
+                    pathResult.nodesExpanded,
+                    pathResult.searchTimeMs
+                )
+            } else {
+                tvNavStatus.text = when (navMode) {
+                    NavSelectionMode.SET_START -> "A* Nav: Tap floor for START point"
+                    NavSelectionMode.SET_GOAL -> "A* Nav: Tap floor for GOAL point"
+                    NavSelectionMode.OFF -> "A* Nav: IDLE (Anchor mode active)"
+                }
+                tvNavStatus.setTextColor(getColor(R.color.text_primary))
+                tvNavMetrics.text = "Path: 0 cells (0 smooth, 0.0m) | Cost: 0.0 | Time: 0.0ms"
+            }
+
+            btnNavMode.text = when (navMode) {
+                NavSelectionMode.SET_START -> "NAV: SET START"
+                NavSelectionMode.SET_GOAL -> "NAV: SET GOAL"
+                NavSelectionMode.OFF -> "NAV: OFF (ANCHOR)"
+            }
+            when (navMode) {
+                NavSelectionMode.SET_START -> btnNavMode.setTextColor(getColor(R.color.accent_green))
+                NavSelectionMode.SET_GOAL -> btnNavMode.setTextColor(getColor(android.R.color.holo_red_light))
+                NavSelectionMode.OFF -> btnNavMode.setTextColor(getColor(R.color.text_secondary))
+            }
+
+            val sCol = sessionManager.navStartCol
+            val sRow = sessionManager.navStartRow
+            val gCol = sessionManager.navGoalCol
+            val gRow = sessionManager.navGoalRow
+
+            val startStr = if (sessionManager.hasNavStart) {
+                val sState = sessionManager.occupancyGrid.getNavigationCellState(sCol, sRow)
+                "[$sCol, $sRow] (${sState.name})"
+            } else "[--, --]"
+
+            val goalStr = if (sessionManager.hasNavGoal) {
+                val gState = sessionManager.occupancyGrid.getNavigationCellState(gCol, gRow)
+                "[$gCol, $gRow] (${gState.name})"
+            } else "[--, --]"
+
+            tvNavEndpoints.text = "Start: $startStr | Goal: $goalStr"
 
             // Display Performance Telemetry
             tvPerformance.text = String.format(

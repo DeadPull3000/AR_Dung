@@ -63,6 +63,12 @@ class OccupancyGrid(
     var hasNewTextureData: Boolean = false
         private set
 
+    // Monotonically increasing version counter for dynamic replanning detection
+    var gridVersion: Long = 0L
+        private set
+
+    fun <T> withLock(action: () -> T): T = synchronized(gridLock) { action() }
+
     // Diagnostic metrics
     private var updateFrameCount = 0
     private var lastRateTimestampNs = 0L
@@ -104,6 +110,7 @@ class OccupancyGrid(
         synchronized(gridLock) {
             traversalCostGrid.unknownPolicy = traversalCostGrid.unknownPolicy.toggle()
             traversalCostGrid.updateCosts(inflatedCellStates)
+            gridVersion++
             if (displayMode == GridDisplayMode.COST) {
                 updateTextureBuffer()
             }
@@ -119,6 +126,7 @@ class OccupancyGrid(
             obstacleInflater.setAgentRadius(radiusMeters)
             obstacleInflater.inflate(numCellsX, numCellsZ, filteredCellStates, inflatedCellStates)
             traversalCostGrid.updateCosts(inflatedCellStates)
+            gridVersion++
             updateTextureBuffer()
         }
     }
@@ -134,6 +142,7 @@ class OccupancyGrid(
             freeEvidence.fill(0f)
             occupiedEvidence.fill(0f)
             traversalCostGrid.reset()
+            gridVersion++
             updateTextureBuffer()
         }
     }
@@ -329,6 +338,7 @@ class OccupancyGrid(
 
             // 7. Stage 4: Traversal Cost Matrix Generation
             traversalCostGrid.updateCosts(inflatedCellStates)
+            gridVersion++
 
             // 8. Update GPU Texture Buffer with current display mode
             updateTextureBuffer()
