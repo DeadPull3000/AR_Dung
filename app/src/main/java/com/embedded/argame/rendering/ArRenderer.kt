@@ -33,6 +33,7 @@ class ArRenderer(
     private val planeRenderer = PlaneRenderer()
     private val anchorMarkerRenderer = AnchorMarkerRenderer()
     private val depthHeatmapRenderer = DepthHeatmapRenderer()
+    private val occupancyGridRenderer = OccupancyGridRenderer()
 
     private var viewportWidth = 0
     private var viewportHeight = 0
@@ -54,9 +55,13 @@ class ArRenderer(
         planeRenderer.createOnGlThread()
         anchorMarkerRenderer.createOnGlThread()
         depthHeatmapRenderer.createOnGlThread()
+        occupancyGridRenderer.createOnGlThread(
+            sessionManager.occupancyGrid.numCellsX,
+            sessionManager.occupancyGrid.numCellsZ
+        )
 
         sessionManager.setCameraTextureName(backgroundRenderer.textureId)
-        Log.i(TAG, "GL Surface created. Background, Plane, Anchor Marker, and Depth renderers initialized.")
+        Log.i(TAG, "GL Surface created. Background, Plane, Anchor Marker, Depth, and Occupancy Grid renderers initialized.")
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -108,6 +113,12 @@ class ArRenderer(
                 val activeAnchor = sessionManager.getActiveAnchor()
                 if (activeAnchor != null && activeAnchor.trackingState == TrackingState.TRACKING) {
                     anchorMarkerRenderer.draw(activeAnchor.pose, viewProjectionMatrix)
+                }
+
+                // 3. Render 2.5D Occupancy Grid anchored to physical floor in world space
+                sessionManager.syncOccupancyGrid(occupancyGridRenderer)
+                if (sessionManager.isGridViewEnabled && sessionManager.floorReference.isTracking) {
+                    occupancyGridRenderer.draw(viewProjectionMatrix, sessionManager.floorReference, 0.65f)
                 }
             }
         }

@@ -25,7 +25,7 @@
             android:id="@+id/tvHeader"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="AR EMBEDDED GAME — MILESTONE 5"
+            android:text="AR EMBEDDED GAME — MILESTONE 6"
             android:textColor="@color/accent_cyan"
             android:textSize="14sp"
             android:textStyle="bold" />
@@ -249,6 +249,82 @@
             android:textColor="@color/accent_cyan"
             android:textSize="11sp"
             android:textStyle="bold" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="6dp"
+            android:background="#30363D" />
+
+        <!-- 2.5D Occupancy Grid Telemetry -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="2.5D Occupancy Grid Telemetry:"
+            android:textColor="@color/text_secondary"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvGridStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:text="Grid: 80×80 (0.10m) | Floor: WAITING"
+            android:textColor="@color/text_primary"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/tvGridCounts"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:fontFamily="monospace"
+            android:text="Free: 0 | Occ: 0 | Unk: 6400 | Cov: 0.0%"
+            android:textColor="@color/text_secondary"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/tvGridMetrics"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:fontFamily="monospace"
+            android:text="Rate: 0.0 Hz | Bounds: 8.0×8.0m | Obs: [0.10m - 1.50m]"
+            android:textColor="@color/text_secondary"
+            android:textSize="10sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnToggleGridView"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="4dp"
+                android:backgroundTint="#21262D"
+                android:text="FLOOR GRID: ON"
+                android:textColor="@color/accent_green"
+                android:textSize="10sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/btnResetGrid"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp"
+                android:backgroundTint="#21262D"
+                android:text="RESET GRID"
+                android:textColor="@color/accent_cyan"
+                android:textSize="10sp"
+                android:textStyle="bold" />
+        </LinearLayout>
 
         <View
             android:layout_width="match_parent"

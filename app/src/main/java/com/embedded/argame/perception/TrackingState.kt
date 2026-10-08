@@ -1,5 +1,7 @@
 package com.embedded.argame.perception
 
+import com.embedded.argame.environment.GridDiagnostics
+
 enum class TrackingStatus {
     NOT_INITIALIZED,
     TRACKING,
@@ -21,5 +23,6 @@ data class TrackingDiagnostics(
     val frameTimestampNs: Long = 0L,
     val planes: PlaneDiagnostics = PlaneDiagnostics(),
     val anchor: AnchorDiagnostics = AnchorDiagnostics(),
-    val depth: DepthDiagnostics = DepthDiagnostics()
+    val depth: DepthDiagnostics = DepthDiagnostics(),
+    val grid: GridDiagnostics = GridDiagnostics()
 )

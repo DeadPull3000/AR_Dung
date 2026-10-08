@@ -55,6 +55,11 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
     private lateinit var tvDepthRanges: TextView
     private lateinit var tvDepthRawIntrinsics: TextView
     private lateinit var btnToggleDepthView: Button
+    private lateinit var tvGridStatus: TextView
+    private lateinit var tvGridCounts: TextView
+    private lateinit var tvGridMetrics: TextView
+    private lateinit var btnToggleGridView: Button
+    private lateinit var btnResetGrid: Button
     private lateinit var tvPerformance: TextView
     private lateinit var permissionRationaleContainer: View
     private lateinit var btnGrantPermission: Button
@@ -108,6 +113,11 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
         tvDepthRanges = findViewById(R.id.tvDepthRanges)
         tvDepthRawIntrinsics = findViewById(R.id.tvDepthRawIntrinsics)
         btnToggleDepthView = findViewById(R.id.btnToggleDepthView)
+        tvGridStatus = findViewById(R.id.tvGridStatus)
+        tvGridCounts = findViewById(R.id.tvGridCounts)
+        tvGridMetrics = findViewById(R.id.tvGridMetrics)
+        btnToggleGridView = findViewById(R.id.btnToggleGridView)
+        btnResetGrid = findViewById(R.id.btnResetGrid)
         tvPerformance = findViewById(R.id.tvPerformance)
         permissionRationaleContainer = findViewById(R.id.permissionRationaleContainer)
         btnGrantPermission = findViewById(R.id.btnGrantPermission)
@@ -123,6 +133,19 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
             } else {
                 "DEPTH HEATMAP: OFF"
             }
+        }
+
+        btnToggleGridView.setOnClickListener {
+            sessionManager.isGridViewEnabled = !sessionManager.isGridViewEnabled
+            btnToggleGridView.text = if (sessionManager.isGridViewEnabled) {
+                "FLOOR GRID: ON"
+            } else {
+                "FLOOR GRID: OFF"
+            }
+        }
+
+        btnResetGrid.setOnClickListener {
+            sessionManager.resetGrid()
         }
 
         btnGrantPermission.setOnClickListener {
@@ -445,6 +468,43 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
                     rawStr
                 )
             }
+
+            // Display 2.5D Occupancy Grid Telemetry
+            val g = diagnostics.grid
+            if (g.isFloorTracking) {
+                tvGridStatus.text = String.format(
+                    Locale.US,
+                    "Grid: %d×%d (%.2fm) | Floor: Y:%+.2fm (%.2fm²)",
+                    g.widthCells,
+                    g.depthCells,
+                    g.cellSizeMeters,
+                    g.floorHeightY,
+                    g.floorPlaneArea
+                )
+                tvGridStatus.setTextColor(getColor(R.color.accent_green))
+            } else {
+                tvGridStatus.text = "Grid: ${g.widthCells}×${g.depthCells} (0.10m) | Floor: ${g.floorStatus}"
+                tvGridStatus.setTextColor(getColor(android.R.color.holo_orange_light))
+            }
+
+            tvGridCounts.text = String.format(
+                Locale.US,
+                "Free: %d | Occ: %d | Unk: %d | Cov: %.1f%%",
+                g.freeCount,
+                g.occupiedCount,
+                g.unknownCount,
+                g.coveragePercent
+            )
+
+            tvGridMetrics.text = String.format(
+                Locale.US,
+                "Rate: %.1f Hz | Bounds: %.1f×%.1fm | Obs: [%.2fm - %.2fm]",
+                g.updateHz,
+                g.widthCells * g.cellSizeMeters,
+                g.depthCells * g.cellSizeMeters,
+                g.minObstacleHeight,
+                g.maxNavigationHeight
+            )
 
             // Display Performance Telemetry
             tvPerformance.text = String.format(

@@ -26,7 +26,11 @@ import com.google.ar.core.exceptions.UnavailableArcoreNotInstalledException
 import com.google.ar.core.exceptions.UnavailableDeviceNotCompatibleException
 import com.google.ar.core.exceptions.UnavailableSdkTooOldException
 import com.google.ar.core.exceptions.UnavailableUserDeclinedInstallationException
+import com.embedded.argame.environment.FloorReference
+import com.embedded.argame.environment.GridDiagnostics
+import com.embedded.argame.environment.OccupancyGrid
 import com.embedded.argame.rendering.DepthHeatmapRenderer
+import com.embedded.argame.rendering.OccupancyGridRenderer
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.Locale
@@ -92,6 +96,12 @@ class ArSessionManager(private val activity: Activity) {
     // Cached point sampling arrays to prevent allocation churn
     private val sampleInCoords = FloatArray(2)
     private val sampleOutCoords = FloatArray(2)
+
+    // 2.5D Occupancy Grid and Floor Reference
+    val floorReference = FloorReference()
+    val occupancyGrid = OccupancyGrid(cellSizeMeters = 0.10f, widthMeters = 8.0f, depthMeters = 8.0f)
+    var isGridViewEnabled = true
+    private var currentGridDiagnostics = GridDiagnostics()
 
     interface SessionListener {
         fun onSessionInitialized(session: Session)
@@ -220,6 +230,8 @@ class ArSessionManager(private val activity: Activity) {
             activeAnchor = null
             activeAnchorStatus = AnchorStatus.NONE
         }
+        floorReference.reset()
+        occupancyGrid.reset()
     }
 
     /**
@@ -267,6 +279,22 @@ class ArSessionManager(private val activity: Activity) {
                 hasNewHeatmapData = false
             }
         }
+    }
+
+    /**
+     * Synchronizes the latest processed occupancy grid texture buffer with the GL OccupancyGridRenderer.
+     */
+    fun syncOccupancyGrid(renderer: OccupancyGridRenderer) {
+        renderer.updateTexture(occupancyGrid)
+    }
+
+    /**
+     * Resets the 2.5D occupancy grid map evidence and states.
+     */
+    fun resetGrid() {
+        occupancyGrid.reset()
+        floorReference.reset()
+        Log.i(TAG, "Occupancy grid and floor reference reset by user.")
     }
 
     /**
@@ -476,6 +504,9 @@ class ArSessionManager(private val activity: Activity) {
             activePlanesList.addAll(currentActiveList)
         }
 
+        // Update Floor Reference using the latest active planes list and camera pose
+        floorReference.updateFloorReference(currentActiveList, cameraPose)
+
         val planeDiagnostics = PlaneDiagnostics(
             totalPlanes = totalActivePlanes,
             horizontalUpwardCount = horizUpCount,
@@ -550,7 +581,13 @@ class ArSessionManager(private val activity: Activity) {
             frameTimestampNs = frame.timestamp,
             planes = planeDiagnostics,
             anchor = anchorDiagnostics,
-            depth = currentDepthDiagnostics
+            depth = currentDepthDiagnostics,
+            grid = currentGridDiagnostics.copy(
+                isFloorTracking = floorReference.isTracking,
+                floorStatus = if (floorReference.isTracking) "TRACKING" else "WAITING",
+                floorHeightY = floorReference.floorHeightY,
+                floorPlaneArea = floorReference.floorArea
+            )
         )
 
         listener?.onTrackingUpdated(diagnostics)
@@ -800,6 +837,27 @@ class ArSessionManager(private val activity: Activity) {
                     intrinsics = intrinsicsData,
                     statusMessage = "Depth READY (${imgWidth}x${imgHeight})"
                 )
+
+                // 6. Update 2.5D Occupancy Grid with 16-bit depth & floor frame
+                if (floorReference.isTracking) {
+                    currentGridDiagnostics = occupancyGrid.updateWithDepth(
+                        depthBuffer = buffer,
+                        depthWidth = imgWidth,
+                        depthHeight = imgHeight,
+                        rowStride = rowStride,
+                        pixelStride = pixelStride,
+                        intrinsics = intrinsicsData,
+                        matrixCamToFloor = floorReference.matrixCamToFloor,
+                        floorExtentX = floorReference.floorExtentX,
+                        floorExtentZ = floorReference.floorExtentZ,
+                        floorTracking = true
+                    )
+                } else {
+                    currentGridDiagnostics = GridDiagnostics(
+                        isFloorTracking = false,
+                        floorStatus = "WAITING"
+                    )
+                }
             }
         } catch (e: NotYetAvailableException) {
             currentDepthDiagnostics = DepthDiagnostics(
