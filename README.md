@@ -104,6 +104,10 @@ AR_Dung/
 │           │   │   ├── OccupancyGrid.kt
 │           │   │   ├── SpatialFilter.kt
 │           │   │   └── TraversalCostGrid.kt
+│           │   ├── navigation/    # Deterministic A* pathfinding & spatial graph search
+│           │   │   ├── AStarPathfinder.kt
+│           │   │   ├── IndexedMinHeap.kt
+│           │   │   └── PathResult.kt
 │           │   ├── perception/    # ARCore session management & decoupled spatial models
 │           │   │   ├── AnchorData.kt
 │           │   │   ├── ArSessionManager.kt
@@ -116,6 +120,7 @@ AR_Dung/
 │           │       ├── BackgroundRenderer.kt
 │           │       ├── DepthHeatmapRenderer.kt
 │           │       ├── OccupancyGridRenderer.kt
+│           │       ├── PathRenderer.kt
 │           │       └── PlaneRenderer.kt
 │           └── res/
 │               ├── layout/
@@ -132,6 +137,7 @@ AR_Dung/
 │   ├── milestone_5_depth.md       # Milestone 5 16-bit depth & heatmap verification
 │   ├── milestone_6_occupancy_grid.md # Milestone 6 2.5D occupancy grid verification
 │   ├── milestone_7_spatial_filtering_inflation.md # Milestone 7 filtering, inflation & cost grid
+│   ├── milestone_8_astar_pathfinding.md # Milestone 8 custom A* pathfinding & smoothing
 │   ├── software_architecture.md   # System modules, data flow, and contracts
 │   └── screenshots/               # On-device physical verification captures
 ├── gradle/wrapper/                # Gradle wrapper binaries & properties
@@ -204,8 +210,8 @@ adb shell am start -n com.embedded.argame/.MainActivity
 | **5** | **ARCore Depth Perception, 16-Bit Sampling & False-Color Heatmap** | **Completed & Verified (60 FPS)** |
 | **6** | **2.5D Occupancy Grid Representation & Spatial Discretization** | **Completed & Verified (60 FPS, 9.2 Hz grid)** |
 | **7** | **Spatial Filtering, Obstacle Inflation & Traversal Cost Matrix** | **Completed & Verified (60 FPS, 9.2 Hz grid, 1.8 ms latency)** |
-| **8** | Custom A* Pathfinding on Traversal Cost Grid | Planned |
-| **9** | Virtual Agent World Placement & Path Following | Planned |
+| **8** | **Custom A* Pathfinding, Line-of-Sight Smoothing & 3D AR Path Rendering** | **Completed & Verified (60 FPS, <0.7 ms A* search)** |
+| **9** | Autonomous AR Agent Navigation & Kinematics | Planned |
 | **10** | Autonomous Agent Finite-State Machine (FSM) | Planned |
 | **11** | Depth-Aware Shader Occlusion of Virtual Objects | Planned |
 | **12** | Procedural Dungeon Generation on Physical Grid | Planned |
