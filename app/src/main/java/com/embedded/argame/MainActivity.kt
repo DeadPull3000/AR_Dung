@@ -17,6 +17,8 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import com.embedded.argame.environment.GridDisplayMode
+import com.embedded.argame.environment.UnknownCostPolicy
 import com.embedded.argame.perception.AnchorStatus
 import com.embedded.argame.perception.ArSessionManager
 import com.embedded.argame.perception.DepthStatus
@@ -60,6 +62,8 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
     private lateinit var tvGridMetrics: TextView
     private lateinit var btnToggleGridView: Button
     private lateinit var btnResetGrid: Button
+    private lateinit var btnGridDisplayMode: Button
+    private lateinit var btnToggleUnknownPolicy: Button
     private lateinit var tvPerformance: TextView
     private lateinit var permissionRationaleContainer: View
     private lateinit var btnGrantPermission: Button
@@ -118,6 +122,8 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
         tvGridMetrics = findViewById(R.id.tvGridMetrics)
         btnToggleGridView = findViewById(R.id.btnToggleGridView)
         btnResetGrid = findViewById(R.id.btnResetGrid)
+        btnGridDisplayMode = findViewById(R.id.btnGridDisplayMode)
+        btnToggleUnknownPolicy = findViewById(R.id.btnToggleUnknownPolicy)
         tvPerformance = findViewById(R.id.tvPerformance)
         permissionRationaleContainer = findViewById(R.id.permissionRationaleContainer)
         btnGrantPermission = findViewById(R.id.btnGrantPermission)
@@ -146,6 +152,22 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
 
         btnResetGrid.setOnClickListener {
             sessionManager.resetGrid()
+        }
+
+        btnGridDisplayMode.setOnClickListener {
+            val newMode = sessionManager.cycleGridDisplayMode()
+            btnGridDisplayMode.text = "MODE: ${newMode.name}"
+            when (newMode) {
+                GridDisplayMode.RAW -> btnGridDisplayMode.setTextColor(getColor(android.R.color.holo_red_light))
+                GridDisplayMode.FILTERED -> btnGridDisplayMode.setTextColor(getColor(android.R.color.holo_orange_light))
+                GridDisplayMode.INFLATED -> btnGridDisplayMode.setTextColor(getColor(R.color.accent_yellow))
+                GridDisplayMode.COST -> btnGridDisplayMode.setTextColor(getColor(R.color.accent_cyan))
+            }
+        }
+
+        btnToggleUnknownPolicy.setOnClickListener {
+            val newPolicy = sessionManager.toggleUnknownPolicy()
+            btnToggleUnknownPolicy.text = if (newPolicy == UnknownCostPolicy.BLOCKED) "UNK: BLOCKED" else "UNK: PENALTY"
         }
 
         btnGrantPermission.setOnClickListener {
@@ -489,21 +511,23 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
 
             tvGridCounts.text = String.format(
                 Locale.US,
-                "Free: %d | Occ: %d | Unk: %d | Cov: %.1f%%",
+                "RawOcc:%d | Filt:%d | InflBlk:%d | Free:%d (Noise:-%d)",
+                g.rawOccupiedCount,
+                g.filteredOccupiedCount,
+                g.inflatedBlockedCount,
                 g.freeCount,
-                g.occupiedCount,
-                g.unknownCount,
-                g.coveragePercent
+                g.removedNoiseCount
             )
 
             tvGridMetrics.text = String.format(
                 Locale.US,
-                "Rate: %.1f Hz | Bounds: %.1f×%.1fm | Obs: [%.2fm - %.2fm]",
-                g.updateHz,
-                g.widthCells * g.cellSizeMeters,
-                g.depthCells * g.cellSizeMeters,
-                g.minObstacleHeight,
-                g.maxNavigationHeight
+                "Mode: %s | Radius: %.2fm (%d cells) | Unk: %s | Time: %.1fms (%.1fHz)",
+                g.displayMode.name,
+                g.agentRadiusMeters,
+                g.inflationRadiusCells,
+                g.unknownCostPolicy.name,
+                g.processingTimeMs,
+                g.updateHz
             )
 
             // Display Performance Telemetry

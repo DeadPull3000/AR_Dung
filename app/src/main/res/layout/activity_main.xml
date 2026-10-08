@@ -25,7 +25,7 @@
             android:id="@+id/tvHeader"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="AR EMBEDDED GAME — MILESTONE 6"
+            android:text="AR EMBEDDED GAME — MILESTONE 7"
             android:textColor="@color/accent_cyan"
             android:textSize="14sp"
             android:textStyle="bold" />
@@ -322,6 +322,37 @@
                 android:backgroundTint="#21262D"
                 android:text="RESET GRID"
                 android:textColor="@color/accent_cyan"
+                android:textSize="10sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnGridDisplayMode"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="4dp"
+                android:backgroundTint="#21262D"
+                android:text="MODE: INFLATED"
+                android:textColor="@color/accent_yellow"
+                android:textSize="10sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/btnToggleUnknownPolicy"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp"
+                android:backgroundTint="#21262D"
+                android:text="UNK: BLOCKED"
+                android:textColor="@color/accent_purple"
                 android:textSize="10sp"
                 android:textStyle="bold" />
         </LinearLayout>

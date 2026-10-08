@@ -9,6 +9,9 @@ import java.nio.ByteOrder
  * Bounded 2.5D Occupancy Grid representing walkable, blocked, and unknown space
  * near the physical floor.
  *
+ * Implements the Milestone 7 Spatial Perception Pipeline:
+ * Raw Occupancy -> Spatial Filtering -> Obstacle Inflation -> Traversal Cost Matrix.
+ *
  * Coordinates:
  * - Defined in Floor Space relative to the detected floor plane center.
  * - Center is (0, 0).
@@ -38,10 +41,21 @@ class OccupancyGrid(
     val numCellsZ: Int = (depthMeters / cellSizeMeters).toInt()
     val totalCells: Int = numCellsX * numCellsZ
 
+    // Milestone 7 Modular Pipeline Processors
+    val spatialFilter = SpatialFilter(minOccupiedNeighbors = 1, strongEvidenceThreshold = 4.0f)
+    val obstacleInflater = ObstacleInflater(cellSizeMeters, initialAgentRadiusMeters = 0.20f)
+    val traversalCostGrid = TraversalCostGrid(totalCells, unknownPolicy = UnknownCostPolicy.BLOCKED)
+
     // Flat compact arrays to eliminate GC allocation during 10 Hz perception loops
-    private val cellStates = ByteArray(totalCells)
+    val rawCellStates = ByteArray(totalCells)
+    val filteredCellStates = ByteArray(totalCells)
+    val inflatedCellStates = ByteArray(totalCells)
     private val freeEvidence = FloatArray(totalCells)
     private val occupiedEvidence = FloatArray(totalCells)
+
+    // Active visualization mode
+    var displayMode: GridDisplayMode = GridDisplayMode.INFLATED
+        private set
 
     // RGBA texture buffer for OpenGL ES 3.0 visualization
     val textureByteBuffer: ByteBuffer = ByteBuffer.allocateDirect(totalCells * 4).order(ByteOrder.nativeOrder())
@@ -53,22 +67,73 @@ class OccupancyGrid(
     private var updateFrameCount = 0
     private var lastRateTimestampNs = 0L
     private var currentUpdateHz = 0f
+    private var lastProcessingDurationMs = 0f
 
     init {
         reset()
-        Log.i(TAG, "OccupancyGrid initialized: %dx%d cells (%d total), resolution=%.2fm, bounds=%.1fx%.1fm".format(
-            numCellsX, numCellsZ, totalCells, cellSizeMeters, widthMeters, depthMeters
+        Log.i(TAG, "OccupancyGrid initialized: %dx%d cells (%d total), resolution=%.2fm, bounds=%.1fx%.1fm, agentRadius=%.2fm".format(
+            numCellsX, numCellsZ, totalCells, cellSizeMeters, widthMeters, depthMeters, obstacleInflater.agentRadiusMeters
         ))
     }
 
     /**
-     * Resets all cells to UNKNOWN and clears evidence.
+     * Cycles through the visualization display modes: RAW -> FILTERED -> INFLATED -> COST -> RAW.
+     */
+    fun cycleDisplayMode(): GridDisplayMode {
+        synchronized(gridLock) {
+            displayMode = displayMode.next()
+            updateTextureBuffer()
+            return displayMode
+        }
+    }
+
+    /**
+     * Sets the visualization display mode.
+     */
+    fun setDisplayMode(mode: GridDisplayMode) {
+        synchronized(gridLock) {
+            displayMode = mode
+            updateTextureBuffer()
+        }
+    }
+
+    /**
+     * Toggles the unknown space traversal cost policy (BLOCKED vs EXPENSIVE_PENALTY).
+     */
+    fun toggleUnknownPolicy(): UnknownCostPolicy {
+        synchronized(gridLock) {
+            traversalCostGrid.unknownPolicy = traversalCostGrid.unknownPolicy.toggle()
+            traversalCostGrid.updateCosts(inflatedCellStates)
+            if (displayMode == GridDisplayMode.COST) {
+                updateTextureBuffer()
+            }
+            return traversalCostGrid.unknownPolicy
+        }
+    }
+
+    /**
+     * Adjusts the navigation agent inflation radius.
+     */
+    fun setAgentRadius(radiusMeters: Float) {
+        synchronized(gridLock) {
+            obstacleInflater.setAgentRadius(radiusMeters)
+            obstacleInflater.inflate(numCellsX, numCellsZ, filteredCellStates, inflatedCellStates)
+            traversalCostGrid.updateCosts(inflatedCellStates)
+            updateTextureBuffer()
+        }
+    }
+
+    /**
+     * Resets all cells to UNKNOWN and clears evidence, filtered states, inflated states, and costs.
      */
     fun reset() {
         synchronized(gridLock) {
-            cellStates.fill(GridCellState.UNKNOWN.code)
+            rawCellStates.fill(GridCellState.UNKNOWN.code)
+            filteredCellStates.fill(GridCellState.UNKNOWN.code)
+            inflatedCellStates.fill(NavigationCellState.UNKNOWN.code)
             freeEvidence.fill(0f)
             occupiedEvidence.fill(0f)
+            traversalCostGrid.reset()
             updateTextureBuffer()
         }
     }
@@ -97,16 +162,31 @@ class OccupancyGrid(
 
     fun cellToIndex(col: Int, row: Int): Int = row * numCellsX + col
 
-    fun getCellState(col: Int, row: Int): GridCellState {
+    fun getRawCellState(col: Int, row: Int): GridCellState {
         synchronized(gridLock) {
             val idx = cellToIndex(col, row)
-            return GridCellState.fromCode(cellStates[idx])
+            return GridCellState.fromCode(rawCellStates[idx])
+        }
+    }
+
+    fun getFilteredCellState(col: Int, row: Int): GridCellState {
+        synchronized(gridLock) {
+            val idx = cellToIndex(col, row)
+            return GridCellState.fromCode(filteredCellStates[idx])
+        }
+    }
+
+    fun getNavigationCellState(col: Int, row: Int): NavigationCellState {
+        synchronized(gridLock) {
+            val idx = cellToIndex(col, row)
+            return NavigationCellState.fromCode(inflatedCellStates[idx])
         }
     }
 
     /**
-     * Integrates 16-bit depth measurements and detected floor polygon into the occupancy grid.
-     * Throttled to 5–10 Hz on the GL perception thread.
+     * Integrates 16-bit depth measurements and detected floor polygon into the occupancy grid,
+     * then executes spatial filtering, obstacle inflation, and traversal cost synthesis.
+     * Throttled to 5–10 Hz on the perception worker thread.
      */
     fun updateWithDepth(
         depthBuffer: ByteBuffer,
@@ -120,10 +200,10 @@ class OccupancyGrid(
         floorExtentZ: Float,
         floorTracking: Boolean
     ): GridDiagnostics {
-        val now = System.nanoTime()
+        val startTimeNs = System.nanoTime()
 
         if (!floorTracking || intrinsics.fx <= 0f) {
-            return generateDiagnostics(floorTracking, 0, 0, totalCells, now)
+            return generateDiagnostics(floorTracking, 0, 0, 0, 0, totalCells, 0, 0f, startTimeNs)
         }
 
         synchronized(gridLock) {
@@ -145,7 +225,6 @@ class OccupancyGrid(
                 for (r in minRow..maxRow) {
                     for (c in minCol..maxCol) {
                         val idx = cellToIndex(c, r)
-                        // Add baseline free evidence on tracked floor
                         freeEvidence[idx] = (freeEvidence[idx] + 0.35f).coerceAtMost(MAX_EVIDENCE)
                     }
                 }
@@ -200,10 +279,10 @@ class OccupancyGrid(
                 }
             }
 
-            // 4. Update Tri-State Cell Classifications
-            var freeCount = 0
-            var occCount = 0
-            var unkCount = 0
+            // 4. Update Tri-State Raw Cell Classifications
+            var rawFreeCount = 0
+            var rawOccCount = 0
+            var rawUnkCount = 0
 
             for (i in 0 until totalCells) {
                 val occ = occupiedEvidence[i]
@@ -215,51 +294,163 @@ class OccupancyGrid(
                     else -> GridCellState.UNKNOWN
                 }
 
-                cellStates[i] = state.code
+                rawCellStates[i] = state.code
                 when (state) {
-                    GridCellState.FREE -> freeCount++
-                    GridCellState.OCCUPIED -> occCount++
-                    GridCellState.UNKNOWN -> unkCount++
+                    GridCellState.FREE -> rawFreeCount++
+                    GridCellState.OCCUPIED -> rawOccCount++
+                    GridCellState.UNKNOWN -> rawUnkCount++
                 }
             }
 
-            // 5. Update GPU Texture Buffer
+            // 5. Stage 2: Spatial Filtering (conservative noise removal)
+            val removedNoiseCount = spatialFilter.filter(
+                numCellsX = numCellsX,
+                numCellsZ = numCellsZ,
+                rawStates = rawCellStates,
+                occupiedEvidence = occupiedEvidence,
+                freeEvidence = freeEvidence,
+                outFilteredStates = filteredCellStates
+            )
+
+            var filteredOccCount = 0
+            for (i in 0 until totalCells) {
+                if (filteredCellStates[i] == GridCellState.OCCUPIED.code) {
+                    filteredOccCount++
+                }
+            }
+
+            // 6. Stage 3: Obstacle Inflation (agent radius safety margin)
+            val inflatedBlockedCount = obstacleInflater.inflate(
+                numCellsX = numCellsX,
+                numCellsZ = numCellsZ,
+                filteredStates = filteredCellStates,
+                outInflatedStates = inflatedCellStates
+            )
+
+            // 7. Stage 4: Traversal Cost Matrix Generation
+            traversalCostGrid.updateCosts(inflatedCellStates)
+
+            // 8. Update GPU Texture Buffer with current display mode
             updateTextureBuffer()
 
-            // 6. Calculate update rate
+            // 9. Measure processing timing
+            val endTimeNs = System.nanoTime()
+            lastProcessingDurationMs = (endTimeNs - startTimeNs) / 1_000_000.0f
+
+            // 10. Calculate update rate
             updateFrameCount++
-            val elapsedRate = now - lastRateTimestampNs
+            val elapsedRate = endTimeNs - lastRateTimestampNs
             if (elapsedRate >= 1_000_000_000L) {
                 currentUpdateHz = (updateFrameCount * 1_000_000_000f) / elapsedRate
                 updateFrameCount = 0
-                lastRateTimestampNs = now
+                lastRateTimestampNs = endTimeNs
             }
 
-            return generateDiagnostics(floorTracking, freeCount, occCount, unkCount, now)
+            return generateDiagnostics(
+                floorTracking = floorTracking,
+                free = rawFreeCount,
+                rawOcc = rawOccCount,
+                filtOcc = filteredOccCount,
+                inflatedBlk = inflatedBlockedCount,
+                unk = rawUnkCount,
+                removedNoise = removedNoiseCount,
+                processingTimeMs = lastProcessingDurationMs,
+                timestamp = endTimeNs
+            )
         }
     }
 
     /**
-     * Synthesizes RGBA texture pixels for OpenGL ES visualization.
+     * Synthesizes RGBA texture pixels for OpenGL ES 3.0 visualization
+     * according to the active GridDisplayMode.
      */
     private fun updateTextureBuffer() {
         textureByteBuffer.clear()
-        for (i in 0 until totalCells) {
-            when (cellStates[i]) {
-                GridCellState.FREE.code -> {
-                    // Emerald Green (Walkable)
-                    textureByteBuffer.put(0.toByte()).put(230.toByte()).put(118.toByte()).put(200.toByte())
+
+        when (displayMode) {
+            GridDisplayMode.RAW -> {
+                for (i in 0 until totalCells) {
+                    when (rawCellStates[i]) {
+                        GridCellState.FREE.code -> {
+                            // Emerald Green (Walkable)
+                            textureByteBuffer.put(0.toByte()).put(230.toByte()).put(118.toByte()).put(200.toByte())
+                        }
+                        GridCellState.OCCUPIED.code -> {
+                            // Vivid Crimson Red (Raw Obstacle)
+                            textureByteBuffer.put(255.toByte()).put(23.toByte()).put(68.toByte()).put(230.toByte())
+                        }
+                        else -> {
+                            // Dark Charcoal Gray (Unknown)
+                            textureByteBuffer.put(24.toByte()).put(32.toByte()).put(40.toByte()).put(80.toByte())
+                        }
+                    }
                 }
-                GridCellState.OCCUPIED.code -> {
-                    // Vivid Crimson Red (Blocked)
-                    textureByteBuffer.put(255.toByte()).put(23.toByte()).put(68.toByte()).put(230.toByte())
+            }
+
+            GridDisplayMode.FILTERED -> {
+                for (i in 0 until totalCells) {
+                    when (filteredCellStates[i]) {
+                        GridCellState.FREE.code -> {
+                            // Emerald Green (Walkable)
+                            textureByteBuffer.put(0.toByte()).put(230.toByte()).put(118.toByte()).put(200.toByte())
+                        }
+                        GridCellState.OCCUPIED.code -> {
+                            // Vivid Crimson Red (Spatially Credible Obstacle)
+                            textureByteBuffer.put(255.toByte()).put(23.toByte()).put(68.toByte()).put(230.toByte())
+                        }
+                        else -> {
+                            // Dark Charcoal Gray (Unknown)
+                            textureByteBuffer.put(24.toByte()).put(32.toByte()).put(40.toByte()).put(80.toByte())
+                        }
+                    }
                 }
-                else -> {
-                    // Dark Charcoal Gray (Unknown / Unobserved)
-                    textureByteBuffer.put(24.toByte()).put(32.toByte()).put(40.toByte()).put(80.toByte())
+            }
+
+            GridDisplayMode.INFLATED -> {
+                for (i in 0 until totalCells) {
+                    when (inflatedCellStates[i]) {
+                        NavigationCellState.PHYSICAL_OBSTACLE.code -> {
+                            // Vivid Crimson Red (Physical Obstacle Center)
+                            textureByteBuffer.put(255.toByte()).put(23.toByte()).put(68.toByte()).put(240.toByte())
+                        }
+                        NavigationCellState.INFLATED_BLOCKED.code -> {
+                            // Amber / Orange (Agent Clearance Margin)
+                            textureByteBuffer.put(255.toByte()).put(152.toByte()).put(0.toByte()).put(215.toByte())
+                        }
+                        NavigationCellState.FREE.code -> {
+                            // Emerald Green (Safe Traversable Space)
+                            textureByteBuffer.put(0.toByte()).put(230.toByte()).put(118.toByte()).put(200.toByte())
+                        }
+                        else -> {
+                            // Dark Charcoal Gray (Unknown Space)
+                            textureByteBuffer.put(24.toByte()).put(32.toByte()).put(40.toByte()).put(80.toByte())
+                        }
+                    }
+                }
+            }
+
+            GridDisplayMode.COST -> {
+                val costs = traversalCostGrid.costMatrix
+                for (i in 0 until totalCells) {
+                    val cost = costs[i]
+                    when {
+                        cost.isInfinite() -> {
+                            // Deep Maroon / Red (Impassable: cost = inf)
+                            textureByteBuffer.put(183.toByte()).put(28.toByte()).put(28.toByte()).put(220.toByte())
+                        }
+                        cost > 1.5f -> {
+                            // Violet / Purple (High Exploratory Penalty: cost = 15.0)
+                            textureByteBuffer.put(124.toByte()).put(77.toByte()).put(255.toByte()).put(180.toByte())
+                        }
+                        else -> {
+                            // Vibrant Cyan (Optimal Free: cost = 1.0)
+                            textureByteBuffer.put(0.toByte()).put(229.toByte()).put(255.toByte()).put(200.toByte())
+                        }
+                    }
                 }
             }
         }
+
         textureByteBuffer.flip()
         hasNewTextureData = true
     }
@@ -267,11 +458,15 @@ class OccupancyGrid(
     private fun generateDiagnostics(
         floorTracking: Boolean,
         free: Int,
-        occ: Int,
+        rawOcc: Int,
+        filtOcc: Int,
+        inflatedBlk: Int,
         unk: Int,
+        removedNoise: Int,
+        processingTimeMs: Float,
         timestamp: Long
     ): GridDiagnostics {
-        val observed = free + occ
+        val observed = free + rawOcc
         val coverage = if (totalCells > 0) (observed * 100f / totalCells) else 0f
         return GridDiagnostics(
             isFloorTracking = floorTracking,
@@ -281,8 +476,17 @@ class OccupancyGrid(
             cellSizeMeters = cellSizeMeters,
             totalCells = totalCells,
             freeCount = free,
-            occupiedCount = occ,
+            occupiedCount = filtOcc,
             unknownCount = unk,
+            rawOccupiedCount = rawOcc,
+            filteredOccupiedCount = filtOcc,
+            inflatedBlockedCount = inflatedBlk,
+            removedNoiseCount = removedNoise,
+            displayMode = displayMode,
+            agentRadiusMeters = obstacleInflater.agentRadiusMeters,
+            inflationRadiusCells = obstacleInflater.inflationRadiusCells,
+            unknownCostPolicy = traversalCostGrid.unknownPolicy,
+            processingTimeMs = processingTimeMs,
             coveragePercent = coverage,
             updateHz = currentUpdateHz,
             lastUpdateTimestampNs = timestamp,

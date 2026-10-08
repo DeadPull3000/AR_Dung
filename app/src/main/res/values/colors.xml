@@ -12,6 +12,8 @@
     <color name="card_stroke">#FF30363D</color>
     <color name="accent_green">#FF238636</color>
     <color name="accent_cyan">#FF58A6FF</color>
+    <color name="accent_yellow">#FFD29922</color>
+    <color name="accent_purple">#FFA371F7</color>
     <color name="text_primary">#FFF0F6FC</color>
     <color name="text_secondary">#FF8B949E</color>
 </resources>

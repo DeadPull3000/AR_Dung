@@ -28,6 +28,8 @@ import com.google.ar.core.exceptions.UnavailableSdkTooOldException
 import com.google.ar.core.exceptions.UnavailableUserDeclinedInstallationException
 import com.embedded.argame.environment.FloorReference
 import com.embedded.argame.environment.GridDiagnostics
+import com.embedded.argame.environment.GridDisplayMode
+import com.embedded.argame.environment.UnknownCostPolicy
 import com.embedded.argame.environment.OccupancyGrid
 import com.embedded.argame.rendering.DepthHeatmapRenderer
 import com.embedded.argame.rendering.OccupancyGridRenderer
@@ -296,6 +298,16 @@ class ArSessionManager(private val activity: Activity) {
         floorReference.reset()
         Log.i(TAG, "Occupancy grid and floor reference reset by user.")
     }
+
+    /**
+     * Cycles the active visualization mode of the occupancy grid.
+     */
+    fun cycleGridDisplayMode(): GridDisplayMode = occupancyGrid.cycleDisplayMode()
+
+    /**
+     * Toggles the traversal cost policy for unobserved (UNKNOWN) grid space.
+     */
+    fun toggleUnknownPolicy(): UnknownCostPolicy = occupancyGrid.toggleUnknownPolicy()
 
     /**
      * Enqueues a screen tap coordinate (in pixels) for hit-testing on the GL render thread.
