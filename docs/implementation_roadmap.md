@@ -27,7 +27,8 @@ The MVP is the smallest complete end-to-end slice demonstrating the core feedbac
   - *Status:* COMPLETED & VERIFIED on physical tablet at ~60 FPS.
 - **Milestone 5:** Depth perception foundation (ARCore 16-bit depth acquisition, AUTOMATIC depth mode configuration, image stride and Little-Endian byte-order handling, 10 Hz throttled statistical sampling, OpenGL ES 3.0 false-color depth heatmap overlay, 5-point screen coordinate sampling, raw depth & confidence investigation, camera intrinsics extraction).
   - *Status:* COMPLETED & VERIFIED on physical tablet at 59.9 FPS (160x90 depth resolution, 100% dense coverage with motion, stable metric readings).
-- **Milestone 6:** Occupancy grid construction (Converting depth point cloud and plane geometry into a 2.5D occupancy map).
+- **Milestone 6:** 2.5D Occupancy grid construction (Converting 16-bit depth point cloud and plane geometry into a stable, bounded 8.0m x 8.0m 2.5D occupancy map at 0.10m resolution, floor reference frame anchoring, height-band obstacle classification, evidence accumulation/decay, OpenGL ES 3.0 world-space floor grid renderer, real-time telemetry).
+  - *Status:* COMPLETED & VERIFIED on physical tablet at 60.0 FPS rendering, 9.1-9.3 Hz grid update rate, verified across all 6 physical test cases.
 - **Milestone 7:** Depth/geometry processing (Background depth buffer extraction and spatial filtering).
 - **Milestone 8:** Occupancy grid (Constructing and updating 2.5D occupancy map).
 - **Milestone 9:** A* navigation (Grid-based path planning with obstacle inflation).
