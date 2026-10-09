@@ -35,13 +35,13 @@ The MVP is the smallest complete end-to-end slice demonstrating the core feedbac
   - *Status:* COMPLETED & VERIFIED on Samsung Galaxy Tab S8+ (`SM-X800`) at 59.6-60.8 FPS rendering, 0.07-0.24 ms search latency, 10/10 unit tests passing, physical room verified across Tests A through F.
 - **Milestone 9:** Autonomous AR agent navigation & kinematics (Single virtual agent entity spawning, deterministic floor-plane kinematics, pure pursuit directional steering with clamped turn-rate, dynamic event-driven replanning preserving goal from current agent cell, OpenGL ES 3.0 3D octagonal body and forward arrow renderer, verified on physical hardware).
   - *Status:* COMPLETED & VERIFIED on Samsung Galaxy Tab S8+ (`SM-X800`) at 59.5-60.7 FPS rendering, 0.018 ms simulation time, 20/20 unit tests passing, physical room verified across Tests A through H.
-- **Milestone 10:** Interactive Player Interaction & Dynamic Retargeting (Real-time goal relocation while agent is en route, tap retargeting).
-- **Milestone 11:** Autonomous agent FSM (Idle, Wander, Target states).
-- **Milestone 12:** Depth occlusion shader (Real-world object occlusion over virtual geometry).
-- **Milestone 13:** Procedural dungeon generation (Generating virtual walls and corridors bounded by room layout).
-- **Milestone 14:** Advanced AI behavior (Player chase, search, cover selection).
-- **Milestone 15:** Performance profiling (FPS, frame timing, memory, thermal and battery monitoring).
-- **Milestone 16:** Final game integration (Objectives, win/lose conditions, polished UI).
+- **Milestone 10:** Reactive Creature AI, Player Awareness & Behaviour State Machine (Autonomous floor patrol, ARCore camera proxy proximity detection, 2.5D Bresenham line-of-sight raycast, pursuit pathfinding via existing A* navigation, last known location preservation, bounded multi-candidate search, return to patrol, asynchronous request token protection, safe recovery, state-reactive 3D color rendering, HUD controls & telemetry).
+  - *Status:* COMPLETED & VERIFIED on Samsung Galaxy Tab S8+ (`SM-X800`) at 59.8–60.3 FPS rendering, 9.1–9.3 Hz depth perception, 40/40 unit tests passing, physical room verified across Tests A through J.
+- **Milestone 11:** Depth occlusion shader (Real-world object occlusion over virtual geometry using ARCore depth buffer in GL fragment shaders).
+- **Milestone 12:** Procedural dungeon generation (Generating virtual walls and corridors bounded by room layout).
+- **Milestone 13:** Advanced AI tactics & Spatial Audio (Cover-aware movement, spatial audio cues for creature state transitions).
+- **Milestone 14:** Performance profiling & Thermal management (Frame timing, heap churn, thermal and battery profiling).
+- **Milestone 15:** Final game integration (Objectives, win/lose conditions, polished UI).
 
 ## 3. Deliberately Deferred ("Do Not Build Yet")
 - Game engines (Unity, Unreal)

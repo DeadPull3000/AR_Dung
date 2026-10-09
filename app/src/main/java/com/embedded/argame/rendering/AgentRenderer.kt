@@ -3,6 +3,7 @@ package com.embedded.argame.rendering
 import android.opengl.GLES20
 import android.opengl.Matrix
 import android.util.Log
+import com.embedded.argame.ai.CreatureAIState
 import com.embedded.argame.environment.FloorReference
 import com.embedded.argame.navigation.AgentPose
 import com.embedded.argame.navigation.AgentState
@@ -93,6 +94,7 @@ class AgentRenderer {
     private var cachedFloorZ = 0f
     private var cachedHeadingRadians = 0f
     private var cachedState = AgentState.IDLE
+    private var cachedAiState: CreatureAIState? = null
 
     init {
         // 1. Generate Body Geometry
@@ -168,7 +170,7 @@ class AgentRenderer {
     /**
      * Updates the cached agent pose for GL rendering. Call on simulation or render thread.
      */
-    fun updateAgentPose(pose: AgentPose?) {
+    fun updateAgentPose(pose: AgentPose?, aiState: CreatureAIState? = null) {
         synchronized(poseLock) {
             if (pose != null && pose.isSpawned) {
                 hasActiveAgent = true
@@ -176,6 +178,7 @@ class AgentRenderer {
                 cachedFloorZ = pose.floorZ
                 cachedHeadingRadians = pose.headingRadians
                 cachedState = pose.state
+                cachedAiState = aiState
             } else {
                 hasActiveAgent = false
             }
@@ -200,6 +203,7 @@ class AgentRenderer {
         val fz: Float
         val heading: Float
         val st: AgentState
+        val aiSt: CreatureAIState?
 
         synchronized(poseLock) {
             active = hasActiveAgent
@@ -207,6 +211,7 @@ class AgentRenderer {
             fz = cachedFloorZ
             heading = cachedHeadingRadians
             st = cachedState
+            aiSt = cachedAiState
         }
 
         if (!active || floorReference == null || !floorReference.isTracking) return
@@ -237,8 +242,8 @@ class AgentRenderer {
         Matrix.multiplyMM(mvpMatrix, 0, viewProjectionMatrix, 0, modelMatrix, 0)
         GLES20.glUniformMatrix4fv(mvpUniform, 1, false, mvpMatrix, 0)
 
-        // 4. Update Dynamic Body Color according to AgentState
-        updateBodyColors(st)
+        // 4. Update Dynamic Body Color according to AgentState and CreatureAIState
+        updateBodyColors(st, aiSt)
 
         // 5. Draw Body Faces
         GLES20.glVertexAttribPointer(positionAttrib, COORDS_PER_VERTEX, GLES20.GL_FLOAT, false, 0, bodyFaceVertexBuffer)
@@ -267,14 +272,19 @@ class AgentRenderer {
         GLES20.glDisable(GLES20.GL_BLEND)
     }
 
-    private fun updateBodyColors(state: AgentState) {
-        val (r, g, b, a) = when (state) {
-            AgentState.NAVIGATING -> floatArrayOf(0.0f, 0.90f, 1.0f, 0.85f)    // Electric Cyan
-            AgentState.REPLANNING -> floatArrayOf(1.0f, 0.75f, 0.0f, 0.85f)    // Amber Yellow
-            AgentState.ARRIVED -> floatArrayOf(0.0f, 0.95f, 0.40f, 0.85f)       // Emerald Green
-            AgentState.BLOCKED, AgentState.NO_PATH -> floatArrayOf(1.0f, 0.15f, 0.25f, 0.85f) // Crimson Red
-            AgentState.PAUSED, AgentState.IDLE, AgentState.PLANNING -> floatArrayOf(0.55f, 0.60f, 0.65f, 0.80f) // Slate Gray
+    private fun updateBodyColors(state: AgentState, aiState: CreatureAIState?) {
+        val (r, g, b, a) = when {
+            aiState == CreatureAIState.CHASING -> floatArrayOf(1.0f, 0.15f, 0.15f, 0.90f)       // Flame Red (Aggressive Pursuit!)
+            aiState == CreatureAIState.SEARCHING -> floatArrayOf(1.0f, 0.70f, 0.0f, 0.85f)     // Amber Gold (Investigating!)
+            aiState == CreatureAIState.RETURNING -> floatArrayOf(0.70f, 0.20f, 0.95f, 0.85f)     // Royal Purple (Returning)
+            aiState == CreatureAIState.PATROLLING -> floatArrayOf(0.0f, 0.90f, 1.0f, 0.85f)     // Electric Cyan (Cruising Patrol)
+            state == AgentState.NAVIGATING -> floatArrayOf(0.0f, 0.90f, 1.0f, 0.85f)           // Electric Cyan
+            state == AgentState.REPLANNING -> floatArrayOf(1.0f, 0.75f, 0.0f, 0.85f)           // Amber Yellow
+            state == AgentState.ARRIVED -> floatArrayOf(0.0f, 0.95f, 0.40f, 0.85f)              // Emerald Green
+            state == AgentState.BLOCKED || state == AgentState.NO_PATH -> floatArrayOf(1.0f, 0.15f, 0.25f, 0.85f) // Crimson Red
+            else -> floatArrayOf(0.55f, 0.60f, 0.65f, 0.80f)                                  // Slate Gray
         }
+
 
         bodyFaceColorBuffer.position(0)
         for (i in 0 until bodyFaceVertexCount) {

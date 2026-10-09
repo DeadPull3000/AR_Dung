@@ -32,6 +32,11 @@ import com.embedded.argame.environment.GridDisplayMode
 import com.embedded.argame.environment.UnknownCostPolicy
 import com.embedded.argame.environment.OccupancyGrid
 import com.embedded.argame.rendering.DepthHeatmapRenderer
+import com.embedded.argame.ai.CreatureAIConfig
+import com.embedded.argame.ai.CreatureAIController
+import com.embedded.argame.ai.CreatureAISnapshot
+import com.embedded.argame.ai.CreatureAIState
+import com.embedded.argame.ai.TargetType
 import com.embedded.argame.rendering.OccupancyGridRenderer
 import com.embedded.argame.rendering.PathRenderer
 import com.embedded.argame.navigation.AStarPathfinder
@@ -148,10 +153,48 @@ class ArSessionManager(private val activity: Activity) {
     val agentController = AgentController()
     private var lastSimTimestampNs = 0L
 
+    // Milestone 10 Reactive Creature AI Subsystem
+    val creatureAiController = CreatureAIController()
+
     init {
         agentController.onReplanRequested = { fromCol, fromRow, toCol, toRow ->
             Log.i(TAG, "Agent dynamic replan requested: ($fromCol, $fromRow) -> ($toCol, $toRow)")
             replanAgentPath(fromCol, fromRow, toCol, toRow)
+        }
+
+        creatureAiController.onNavigationGoalRequested = { fromCol, fromRow, toCol, toRow, reqId, targetType ->
+            navExecutor.execute {
+                val result = occupancyGrid.withLock {
+                    pathfinder.findPath(
+                        startCol = fromCol,
+                        startRow = fromRow,
+                        goalCol = toCol,
+                        goalRow = toRow,
+                        costGrid = occupancyGrid.traversalCostGrid,
+                        inflatedStates = occupancyGrid.inflatedCellStates,
+                        occupancyGrid = occupancyGrid,
+                        floorReference = floorReference,
+                        gridVersion = occupancyGrid.gridVersion
+                    )
+                }
+                creatureAiController.onPathResult(result, reqId, occupancyGrid, floorReference)
+                if (reqId == creatureAiController.activeRequestId && creatureAiController.isEnabled) {
+                    if (result.status.isSuccessful) {
+                        agentController.applyPathResult(result, occupancyGrid, floorReference)
+                    }
+                    synchronized(pathLock) {
+                        latestPathResult = result
+                        hasNewPathData = true
+                    }
+                    synchronized(anchorLock) {
+                        lastHitMessage = "AI $targetType: ${result.status.name} (${result.searchTimeMs}ms)"
+                    }
+                }
+            }
+        }
+
+        creatureAiController.onStopAgentRequested = {
+            agentController.reset()
         }
     }
 
@@ -313,6 +356,7 @@ class ArSessionManager(private val activity: Activity) {
             processDepthFrame(frame)
             extractDiagnostics(frame, currentSession)
             updateAgentSimulation(frame)
+            updateCreatureAi(frame)
             frame
         } catch (e: CameraNotAvailableException) {
             Log.w(TAG, "Camera not available during frame update")
@@ -347,6 +391,23 @@ class ArSessionManager(private val activity: Activity) {
                 costGrid = occupancyGrid.traversalCostGrid,
                 occupancyGrid = occupancyGrid,
                 floorReference = floorReference
+            )
+        }
+    }
+
+    /**
+     * Executes reactive Creature AI evaluation and decision cycle.
+     */
+    private fun updateCreatureAi(frame: Frame) {
+        val pose = agentController.getPoseSnapshot(occupancyGrid.gridVersion)
+        occupancyGrid.withLock {
+            creatureAiController.update(
+                cameraPose = frame.camera.pose,
+                trackingState = frame.camera.trackingState,
+                floorReference = floorReference,
+                occupancyGrid = occupancyGrid,
+                agentPose = pose,
+                currentTimeMs = System.currentTimeMillis()
             )
         }
     }
@@ -443,9 +504,62 @@ class ArSessionManager(private val activity: Activity) {
     }
 
     /**
-     * Spawns the autonomous agent at the start position and initiates path following.
+     * Spawns the autonomous agent at the start position and initiates path following or reactive AI patrol.
      */
     fun spawnOrStartAgent() {
+        if (creatureAiController.isEnabled) {
+            if (agentController.state == AgentState.PAUSED) {
+                agentController.resume()
+                return
+            }
+            val costGrid = occupancyGrid.traversalCostGrid
+            val spawnCol: Int
+            val spawnRow: Int
+            if (hasNavStart && costGrid.isTraversable(occupancyGrid.cellToIndex(navStartCol, navStartRow))) {
+                spawnCol = navStartCol
+                spawnRow = navStartRow
+            } else {
+                // Find a traversable cell on the mapped floor (prefer near navStart, camera, or grid center)
+                val centerCol = if (hasNavStart) navStartCol else occupancyGrid.numCellsX / 2
+                val centerRow = if (hasNavStart) navStartRow else occupancyGrid.numCellsZ / 2
+                var foundCol = -1
+                var foundRow = -1
+                for (r in 0 until 40) {
+                    for (dc in -r..r) {
+                        for (dr in -r..r) {
+                            val c = centerCol + dc
+                            val row = centerRow + dr
+                            if (c in 0 until occupancyGrid.numCellsX && row in 0 until occupancyGrid.numCellsZ) {
+                                if (costGrid.isTraversable(occupancyGrid.cellToIndex(c, row))) {
+                                    foundCol = c
+                                    foundRow = row
+                                    break
+                                }
+                            }
+                        }
+                        if (foundCol != -1) break
+                    }
+                    if (foundCol != -1) break
+                }
+                if (foundCol != -1) {
+                    spawnCol = foundCol
+                    spawnRow = foundRow
+                } else {
+                    synchronized(anchorLock) {
+                        lastHitMessage = "Map floor or select Start cell first"
+                    }
+                    return
+                }
+            }
+            agentController.spawnAt(spawnCol, spawnRow, occupancyGrid, floorReference)
+            creatureAiController.reset()
+            synchronized(anchorLock) {
+                lastHitMessage = "Creature spawned at ($spawnCol, $spawnRow)"
+            }
+            return
+        }
+
+        // Milestone 9 manual navigation mode (AI disabled)
         if (!hasNavStart || !hasNavGoal) {
             synchronized(anchorLock) {
                 lastHitMessage = "Select Start and Goal first"
@@ -496,8 +610,38 @@ class ArSessionManager(private val activity: Activity) {
      */
     fun syncAgent(renderer: AgentRenderer) {
         val pose = agentController.getPoseSnapshot(occupancyGrid.gridVersion)
-        renderer.updateAgentPose(pose)
+        val aiSnapshot = creatureAiController.getSnapshot()
+        renderer.updateAgentPose(pose, aiSnapshot.state)
     }
+
+    /**
+     * Toggles the reactive Creature AI on or off.
+     */
+    fun toggleCreatureAi(): Boolean {
+        val enabled = creatureAiController.toggleEnabled()
+        if (enabled) {
+            val pose = agentController.getPoseSnapshot(occupancyGrid.gridVersion)
+            if (!pose.isSpawned) {
+                val sCol = if (hasNavStart) navStartCol else occupancyGrid.numCellsX / 2
+                val sRow = if (hasNavStart) navStartRow else occupancyGrid.numCellsZ / 2
+                agentController.spawnAt(sCol, sRow, occupancyGrid, floorReference)
+            }
+        }
+        return enabled
+    }
+
+    /**
+     * Resets the reactive Creature AI and halts creature movement.
+     */
+    fun resetCreatureAi() {
+        creatureAiController.reset()
+        resetAgent()
+    }
+
+    /**
+     * Obtains the latest snapshot of the Creature AI subsystem.
+     */
+    fun getCreatureAiSnapshot(): CreatureAISnapshot = creatureAiController.getSnapshot()
 
     /**
      * Asynchronously replans path from agent's CURRENT cell to goal cell.

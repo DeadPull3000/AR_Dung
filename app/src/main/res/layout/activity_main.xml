@@ -31,7 +31,7 @@
             android:id="@+id/tvHeader"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="AR EMBEDDED GAME — MILESTONE 9 (AGENT NAV)"
+            android:text="AR EMBEDDED GAME — MILESTONE 10 (CREATURE AI)"
             android:textColor="@color/accent_cyan"
             android:textSize="14sp"
             android:textStyle="bold" />
@@ -539,6 +539,83 @@
                 android:backgroundTint="#21262D"
                 android:text="RESET AGENT"
                 android:textColor="@color/text_secondary"
+                android:textSize="9sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="6dp"
+            android:background="#30363D" />
+
+        <!-- Milestone 10 Reactive Creature AI Controls & Telemetry -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Reactive Creature AI (Milestone 10):"
+            android:textColor="@color/accent_purple"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvAiStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:text="Creature: INITIALIZING | AI Active"
+            android:textColor="@color/accent_purple"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvAiDetails"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:fontFamily="monospace"
+            android:text="Target: NONE | LastKnown: [-, -] | Req #0"
+            android:textColor="@color/text_primary"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/tvAiPerception"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:fontFamily="monospace"
+            android:text="Player Proxy: (---, ---) | Dist: ---m | LoS: ---"
+            android:textColor="@color/text_secondary"
+            android:textSize="10sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnToggleAi"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="4dp"
+                android:backgroundTint="#21262D"
+                android:text="AI: ENABLED"
+                android:textColor="@color/accent_purple"
+                android:textSize="9sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/btnResetAi"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp"
+                android:backgroundTint="#21262D"
+                android:text="RESET AI"
+                android:textColor="@color/accent_yellow"
                 android:textSize="9sp"
                 android:textStyle="bold" />
         </LinearLayout>

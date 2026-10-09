@@ -17,6 +17,7 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import com.embedded.argame.ai.CreatureAIState
 import com.embedded.argame.environment.GridDisplayMode
 import com.embedded.argame.environment.UnknownCostPolicy
 import com.embedded.argame.navigation.AgentState
@@ -79,6 +80,11 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
     private lateinit var btnSpawnAgent: Button
     private lateinit var btnPauseAgent: Button
     private lateinit var btnResetAgent: Button
+    private lateinit var tvAiStatus: TextView
+    private lateinit var tvAiDetails: TextView
+    private lateinit var tvAiPerception: TextView
+    private lateinit var btnToggleAi: Button
+    private lateinit var btnResetAi: Button
     private lateinit var tvPerformance: TextView
     private lateinit var permissionRationaleContainer: View
     private lateinit var btnGrantPermission: Button
@@ -151,6 +157,11 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
         btnSpawnAgent = findViewById(R.id.btnSpawnAgent)
         btnPauseAgent = findViewById(R.id.btnPauseAgent)
         btnResetAgent = findViewById(R.id.btnResetAgent)
+        tvAiStatus = findViewById(R.id.tvAiStatus)
+        tvAiDetails = findViewById(R.id.tvAiDetails)
+        tvAiPerception = findViewById(R.id.tvAiPerception)
+        btnToggleAi = findViewById(R.id.btnToggleAi)
+        btnResetAi = findViewById(R.id.btnResetAi)
         tvPerformance = findViewById(R.id.tvPerformance)
         permissionRationaleContainer = findViewById(R.id.permissionRationaleContainer)
         btnGrantPermission = findViewById(R.id.btnGrantPermission)
@@ -165,6 +176,16 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
 
         btnResetAgent.setOnClickListener {
             sessionManager.resetAgent()
+        }
+
+        btnToggleAi.setOnClickListener {
+            val enabled = sessionManager.toggleCreatureAi()
+            btnToggleAi.text = if (enabled) "AI: ENABLED" else "AI: DISABLED"
+            btnToggleAi.setTextColor(if (enabled) getColor(R.color.accent_purple) else getColor(R.color.text_secondary))
+        }
+
+        btnResetAi.setOnClickListener {
+            sessionManager.resetCreatureAi()
         }
 
         btnNavMode.setOnClickListener {
@@ -722,6 +743,51 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
                 tvAgentPose.text = "Pos: (---, ---) [---] | Head: ---° | Spd: 0.00 m/s"
                 tvAgentNav.text = "Wp: 0/0 | Dist: --- | Grid: v${diagnostics.grid.gridVersion} | Replans: 0"
             }
+
+            // Display Reactive Creature AI Telemetry (Milestone 10)
+            val aiSnapshot = sessionManager.getCreatureAiSnapshot()
+            val aiStateStr = when (aiSnapshot.state) {
+                CreatureAIState.INITIALIZING -> "INITIALIZING (Scanning room)"
+                CreatureAIState.PATROLLING -> "PATROLLING (Exploring floor)"
+                CreatureAIState.CHASING -> "CHASING PLAYER! (Pursuing proxy)"
+                CreatureAIState.SEARCHING -> String.format(Locale.US, "SEARCHING (Investigating area: %.1fs)", aiSnapshot.searchTimeRemainingSec)
+                CreatureAIState.RETURNING -> "RETURNING (Back to patrol)"
+                CreatureAIState.BLOCKED -> "BLOCKED (Path recovery)"
+                CreatureAIState.PAUSED -> "PAUSED (AI Suspended)"
+            }
+            tvAiStatus.text = "Creature: $aiStateStr"
+            when (aiSnapshot.state) {
+                CreatureAIState.CHASING -> tvAiStatus.setTextColor(getColor(android.R.color.holo_red_light))
+                CreatureAIState.SEARCHING -> tvAiStatus.setTextColor(getColor(R.color.accent_yellow))
+                CreatureAIState.RETURNING -> tvAiStatus.setTextColor(getColor(R.color.accent_purple))
+                CreatureAIState.PATROLLING -> tvAiStatus.setTextColor(getColor(R.color.accent_cyan))
+                CreatureAIState.INITIALIZING -> tvAiStatus.setTextColor(getColor(R.color.accent_green))
+                else -> tvAiStatus.setTextColor(getColor(R.color.text_secondary))
+            }
+
+            val targetCellStr = if (aiSnapshot.targetCol >= 0) "[c${aiSnapshot.targetCol}, r${aiSnapshot.targetRow}]" else "[-, -]"
+            val lastKnownStr = if (aiSnapshot.lastKnownPlayerCol >= 0) "[c${aiSnapshot.lastKnownPlayerCol}, r${aiSnapshot.lastKnownPlayerRow}]" else "[-, -]"
+            tvAiDetails.text = String.format(
+                Locale.US,
+                "Target: %s %s | LastKnown: %s | Req #%d",
+                aiSnapshot.targetType.name,
+                targetCellStr,
+                lastKnownStr,
+                aiSnapshot.activeRequestId
+            )
+
+            val playerDistStr = if (aiSnapshot.playerDistanceMeters < 100f) String.format(Locale.US, "%.2fm", aiSnapshot.playerDistanceMeters) else "---m"
+            val playerCellStr = if (aiSnapshot.playerCellCol >= 0) "[c${aiSnapshot.playerCellCol}, r${aiSnapshot.playerCellRow}]" else "[-, -]"
+            val losStr = if (aiSnapshot.isLineOfSightClear) "CLEAR" else "BLOCKED"
+            val detectedStr = if (aiSnapshot.isPlayerDetected) "DETECTED" else "HIDDEN"
+            tvAiPerception.text = String.format(
+                Locale.US,
+                "Player Proxy: %s | Dist: %s | LoS: %s (%s)",
+                playerCellStr,
+                playerDistStr,
+                losStr,
+                detectedStr
+            )
 
             // Display Performance Telemetry
             tvPerformance.text = String.format(
