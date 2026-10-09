@@ -140,6 +140,33 @@ class FloorReference {
     }
 
     /**
+     * Returns the 4x4 World-to-Floor transformation matrix.
+     */
+    fun getWorldToFloorMatrix(outMatrix: FloatArray, offset: Int = 0) {
+        System.arraycopy(matrixWorldToFloor, 0, outMatrix, offset, 16)
+    }
+
+    /**
+     * Transforms a 3D floor-space point [fx, fy, fz] into 3D AR world coordinates [wx, wy, wz].
+     */
+    fun floorToWorldPoint(fx: Float, fy: Float, fz: Float, outWorld: FloatArray, offset: Int = 0) {
+        val m = matrixFloorToWorld
+        outWorld[offset + 0] = m[0] * fx + m[4] * fy + m[8] * fz + m[12]
+        outWorld[offset + 1] = m[1] * fx + m[5] * fy + m[9] * fz + m[13]
+        outWorld[offset + 2] = m[2] * fx + m[6] * fy + m[10] * fz + m[14]
+    }
+
+    /**
+     * Transforms a 3D AR world point [wx, wy, wz] into 3D floor-space coordinates [fx, fy, fz].
+     */
+    fun worldToFloorPoint(wx: Float, wy: Float, wz: Float, outFloor: FloatArray, offset: Int = 0) {
+        val m = matrixWorldToFloor
+        outFloor[offset + 0] = m[0] * wx + m[4] * wy + m[8] * wz + m[12]
+        outFloor[offset + 1] = m[1] * wx + m[5] * wy + m[9] * wz + m[13]
+        outFloor[offset + 2] = m[2] * wx + m[6] * wy + m[10] * wz + m[14]
+    }
+
+    /**
      * Resets the floor reference lock.
      */
     fun reset() {

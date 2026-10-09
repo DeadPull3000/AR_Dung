@@ -35,6 +35,7 @@ class ArRenderer(
     private val depthHeatmapRenderer = DepthHeatmapRenderer()
     private val occupancyGridRenderer = OccupancyGridRenderer()
     private val pathRenderer = PathRenderer()
+    private val agentRenderer = AgentRenderer()
 
     private var viewportWidth = 0
     private var viewportHeight = 0
@@ -61,9 +62,10 @@ class ArRenderer(
             sessionManager.occupancyGrid.numCellsZ
         )
         pathRenderer.createOnGlThread()
+        agentRenderer.createOnGlThread()
 
         sessionManager.setCameraTextureName(backgroundRenderer.textureId)
-        Log.i(TAG, "GL Surface created. Background, Plane, Anchor Marker, Depth, Occupancy Grid, and Path renderers initialized.")
+        Log.i(TAG, "GL Surface created. Background, Plane, Anchor Marker, Depth, Occupancy Grid, Path, and Agent renderers initialized.")
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -126,6 +128,10 @@ class ArRenderer(
                 // 4. Render A* Navigation Path and 3D Start/Goal Markers
                 sessionManager.syncPath(pathRenderer)
                 pathRenderer.draw(viewProjectionMatrix)
+
+                // 5. Render Autonomous Virtual Agent anchored to physical floor
+                sessionManager.syncAgent(agentRenderer)
+                agentRenderer.draw(viewProjectionMatrix, sessionManager.floorReference)
             }
         }
 

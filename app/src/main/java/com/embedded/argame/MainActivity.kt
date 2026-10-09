@@ -19,6 +19,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.embedded.argame.environment.GridDisplayMode
 import com.embedded.argame.environment.UnknownCostPolicy
+import com.embedded.argame.navigation.AgentState
 import com.embedded.argame.navigation.PathStatus
 import com.embedded.argame.perception.AnchorStatus
 import com.embedded.argame.perception.ArSessionManager
@@ -72,6 +73,12 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
     private lateinit var btnNavMode: Button
     private lateinit var btnReplanPath: Button
     private lateinit var btnClearPath: Button
+    private lateinit var tvAgentStatus: TextView
+    private lateinit var tvAgentPose: TextView
+    private lateinit var tvAgentNav: TextView
+    private lateinit var btnSpawnAgent: Button
+    private lateinit var btnPauseAgent: Button
+    private lateinit var btnResetAgent: Button
     private lateinit var tvPerformance: TextView
     private lateinit var permissionRationaleContainer: View
     private lateinit var btnGrantPermission: Button
@@ -138,9 +145,27 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
         btnNavMode = findViewById(R.id.btnNavMode)
         btnReplanPath = findViewById(R.id.btnReplanPath)
         btnClearPath = findViewById(R.id.btnClearPath)
+        tvAgentStatus = findViewById(R.id.tvAgentStatus)
+        tvAgentPose = findViewById(R.id.tvAgentPose)
+        tvAgentNav = findViewById(R.id.tvAgentNav)
+        btnSpawnAgent = findViewById(R.id.btnSpawnAgent)
+        btnPauseAgent = findViewById(R.id.btnPauseAgent)
+        btnResetAgent = findViewById(R.id.btnResetAgent)
         tvPerformance = findViewById(R.id.tvPerformance)
         permissionRationaleContainer = findViewById(R.id.permissionRationaleContainer)
         btnGrantPermission = findViewById(R.id.btnGrantPermission)
+
+        btnSpawnAgent.setOnClickListener {
+            sessionManager.spawnOrStartAgent()
+        }
+
+        btnPauseAgent.setOnClickListener {
+            sessionManager.toggleAgentPause()
+        }
+
+        btnResetAgent.setOnClickListener {
+            sessionManager.resetAgent()
+        }
 
         btnNavMode.setOnClickListener {
             val mode = sessionManager.cycleNavMode()
@@ -641,6 +666,62 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
             } else "[--, --]"
 
             tvNavEndpoints.text = "Start: $startStr | Goal: $goalStr"
+
+            // Display Autonomous Virtual Agent Telemetry
+            val agentPose = sessionManager.agentController.getPoseSnapshot(diagnostics.grid.gridVersion)
+            tvAgentStatus.text = when (agentPose.state) {
+                AgentState.NAVIGATING -> "Agent: NAVIGATING"
+                AgentState.REPLANNING -> "Agent: REPLANNING (Obstacle detected)"
+                AgentState.ARRIVED -> "Agent: ARRIVED (Goal reached)"
+                AgentState.BLOCKED -> "Agent: BLOCKED (Path obstructed)"
+                AgentState.NO_PATH -> "Agent: NO PATH (Unreachable)"
+                AgentState.PAUSED -> "Agent: PAUSED"
+                AgentState.PLANNING -> "Agent: PLANNING A*..."
+                AgentState.IDLE -> if (agentPose.isSpawned) "Agent: IDLE (Spawned at start)" else "Agent: IDLE (Select Start & Goal)"
+            }
+
+            when (agentPose.state) {
+                AgentState.NAVIGATING -> tvAgentStatus.setTextColor(getColor(R.color.accent_cyan))
+                AgentState.REPLANNING -> tvAgentStatus.setTextColor(getColor(R.color.accent_yellow))
+                AgentState.ARRIVED -> tvAgentStatus.setTextColor(getColor(R.color.accent_green))
+                AgentState.BLOCKED, AgentState.NO_PATH -> tvAgentStatus.setTextColor(getColor(android.R.color.holo_red_light))
+                AgentState.PAUSED -> tvAgentStatus.setTextColor(getColor(android.R.color.holo_orange_light))
+                else -> tvAgentStatus.setTextColor(getColor(R.color.text_secondary))
+            }
+
+            btnPauseAgent.text = if (agentPose.state == AgentState.PAUSED) "RESUME" else "PAUSE"
+            if (agentPose.state == AgentState.PAUSED) {
+                btnPauseAgent.setTextColor(getColor(R.color.accent_green))
+            } else {
+                btnPauseAgent.setTextColor(getColor(R.color.accent_yellow))
+            }
+
+            if (agentPose.isSpawned) {
+                tvAgentPose.text = String.format(
+                    Locale.US,
+                    "Pos: (%+.2f, %+.2f)m [c%d, r%d] | Head: %.1f° | Spd: %.2fm/s",
+                    agentPose.floorX,
+                    agentPose.floorZ,
+                    agentPose.cellCol,
+                    agentPose.cellRow,
+                    agentPose.headingDegrees,
+                    agentPose.speedMps
+                )
+
+                val wpIdxStr = if (agentPose.totalWaypoints > 0) "${agentPose.currentWaypointIndex + 1}/${agentPose.totalWaypoints}" else "0/0"
+                tvAgentNav.text = String.format(
+                    Locale.US,
+                    "Wp: %s | Dist: %.2fm | Grid: v%d | Path: v%d | Replans: %d",
+                    wpIdxStr,
+                    agentPose.distanceToGoalMeters,
+                    agentPose.currentGridVersion,
+                    agentPose.pathGridVersion,
+                    agentPose.replansCount
+                )
+            } else {
+                tvAgentPose.text = "Pos: (---, ---) [---] | Head: ---° | Spd: 0.00 m/s"
+                tvAgentNav.text = "Wp: 0/0 | Dist: --- | Grid: v${diagnostics.grid.gridVersion} | Replans: 0"
+            }
 
             // Display Performance Telemetry
             tvPerformance.text = String.format(

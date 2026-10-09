@@ -11,21 +11,27 @@
         android:layout_height="match_parent" />
 
     <!-- Top Diagnostic Telemetry Overlay -->
-    <LinearLayout
-        android:id="@+id/diagnosticsCard"
+    <ScrollView
         android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
+        android:layout_height="match_parent"
         android:layout_gravity="top|start"
-        android:layout_margin="16dp"
-        android:background="#D00D1117"
-        android:orientation="vertical"
-        android:padding="16dp">
+        android:scrollbars="none"
+        android:fillViewport="false">
+
+        <LinearLayout
+            android:id="@+id/diagnosticsCard"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_margin="10dp"
+            android:background="#D00D1117"
+            android:orientation="vertical"
+            android:padding="12dp">
 
         <TextView
             android:id="@+id/tvHeader"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="AR EMBEDDED GAME — MILESTONE 8 (A* NAV)"
+            android:text="AR EMBEDDED GAME — MILESTONE 9 (AGENT NAV)"
             android:textColor="@color/accent_cyan"
             android:textSize="14sp"
             android:textStyle="bold" />
@@ -454,6 +460,96 @@
             android:layout_marginBottom="6dp"
             android:background="#30363D" />
 
+        <!-- Milestone 9 Autonomous Agent Telemetry -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Autonomous Agent Telemetry:"
+            android:textColor="@color/text_secondary"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvAgentStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:text="Agent: IDLE | Ready to spawn"
+            android:textColor="@color/accent_cyan"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvAgentPose"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:fontFamily="monospace"
+            android:text="Pos: (0.00, 0.00) m [c0, r0] | Head: 0.0° | Spd: 0.00 m/s"
+            android:textColor="@color/text_primary"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/tvAgentNav"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:fontFamily="monospace"
+            android:text="Wp: 0/0 | Goal Dist: 0.00 m | Grid v0 | Path v0 | Replans: 0"
+            android:textColor="@color/text_secondary"
+            android:textSize="10sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnSpawnAgent"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_weight="1.4"
+                android:layout_marginEnd="2dp"
+                android:backgroundTint="#21262D"
+                android:text="SPAWN / START"
+                android:textColor="@color/accent_cyan"
+                android:textSize="9sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/btnPauseAgent"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_weight="1"
+                android:layout_marginStart="2dp"
+                android:layout_marginEnd="2dp"
+                android:backgroundTint="#21262D"
+                android:text="PAUSE"
+                android:textColor="@color/accent_yellow"
+                android:textSize="9sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/btnResetAgent"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_weight="1"
+                android:layout_marginStart="2dp"
+                android:backgroundTint="#21262D"
+                android:text="RESET AGENT"
+                android:textColor="@color/text_secondary"
+                android:textSize="9sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="6dp"
+            android:background="#30363D" />
+
         <TextView
             android:id="@+id/tvPerformance"
             android:layout_width="wrap_content"
@@ -463,7 +559,8 @@
             android:textColor="@color/text_secondary"
             android:textSize="11sp" />
 
-    </LinearLayout>
+        </LinearLayout>
+    </ScrollView>
 
     <!-- Permission Rationale Container (Shown when permission is denied) -->
     <LinearLayout

@@ -29,5 +29,6 @@ data class GridDiagnostics(
     val updateHz: Float = 0f,
     val lastUpdateTimestampNs: Long = 0L,
     val minObstacleHeight: Float = 0.10f,
-    val maxNavigationHeight: Float = 1.50f
+    val maxNavigationHeight: Float = 1.50f,
+    val gridVersion: Long = 0L
 )

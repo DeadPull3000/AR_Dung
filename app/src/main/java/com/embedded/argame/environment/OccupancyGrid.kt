@@ -501,7 +501,8 @@ class OccupancyGrid(
             updateHz = currentUpdateHz,
             lastUpdateTimestampNs = timestamp,
             minObstacleHeight = minObstacleHeight,
-            maxNavigationHeight = maxNavigationHeight
+            maxNavigationHeight = maxNavigationHeight,
+            gridVersion = gridVersion
         )
     }
 

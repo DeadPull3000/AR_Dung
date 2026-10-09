@@ -35,8 +35,13 @@ import com.embedded.argame.rendering.DepthHeatmapRenderer
 import com.embedded.argame.rendering.OccupancyGridRenderer
 import com.embedded.argame.rendering.PathRenderer
 import com.embedded.argame.navigation.AStarPathfinder
+import com.embedded.argame.navigation.AgentConfig
+import com.embedded.argame.navigation.AgentController
+import com.embedded.argame.navigation.AgentPose
+import com.embedded.argame.navigation.AgentState
 import com.embedded.argame.navigation.PathResult
 import com.embedded.argame.navigation.PathStatus
+import com.embedded.argame.rendering.AgentRenderer
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.Locale
@@ -138,6 +143,17 @@ class ArSessionManager(private val activity: Activity) {
     private var hasNewPathData = false
     private val pathLock = Any()
     private val navExecutor = Executors.newSingleThreadExecutor()
+    
+    // Milestone 9 Autonomous Virtual Agent Engine
+    val agentController = AgentController()
+    private var lastSimTimestampNs = 0L
+
+    init {
+        agentController.onReplanRequested = { fromCol, fromRow, toCol, toRow ->
+            Log.i(TAG, "Agent dynamic replan requested: ($fromCol, $fromRow) -> ($toCol, $toRow)")
+            replanAgentPath(fromCol, fromRow, toCol, toRow)
+        }
+    }
 
     interface SessionListener {
         fun onSessionInitialized(session: Session)
@@ -296,6 +312,7 @@ class ArSessionManager(private val activity: Activity) {
             processQueuedTap(frame)
             processDepthFrame(frame)
             extractDiagnostics(frame, currentSession)
+            updateAgentSimulation(frame)
             frame
         } catch (e: CameraNotAvailableException) {
             Log.w(TAG, "Camera not available during frame update")
@@ -303,6 +320,34 @@ class ArSessionManager(private val activity: Activity) {
         } catch (e: Exception) {
             Log.e(TAG, "Exception during ARCore session.update()", e)
             null
+        }
+    }
+
+    /**
+     * Executes autonomous agent kinematics and replan verification. Call on GL frame update loop.
+     */
+    private fun updateAgentSimulation(frame: Frame) {
+        val now = System.nanoTime()
+        if (lastSimTimestampNs == 0L) {
+            lastSimTimestampNs = now
+            return
+        }
+        val dtSec = (now - lastSimTimestampNs) / 1_000_000_000f
+        lastSimTimestampNs = now
+
+        // Section 28: Pause simulation if AR tracking is lost or floor reference not tracking
+        if (frame.camera.trackingState != TrackingState.TRACKING || !floorReference.isTracking) {
+            return
+        }
+
+        occupancyGrid.withLock {
+            agentController.update(
+                deltaTimeSec = dtSec,
+                currentGridVersion = occupancyGrid.gridVersion,
+                costGrid = occupancyGrid.traversalCostGrid,
+                occupancyGrid = occupancyGrid,
+                floorReference = floorReference
+            )
         }
     }
 
@@ -353,7 +398,7 @@ class ArSessionManager(private val activity: Activity) {
     /**
      * Executes A* pathfinding asynchronously on the navigation executor pool.
      */
-    fun requestPathSearch() {
+    fun requestPathSearch(startAgentOnSuccess: Boolean = false) {
         if (!hasNavStart || !hasNavGoal) return
         val sCol = navStartCol
         val sRow = navStartRow
@@ -373,6 +418,9 @@ class ArSessionManager(private val activity: Activity) {
                     floorReference = floorReference,
                     gridVersion = occupancyGrid.gridVersion
                 )
+            }
+            if (startAgentOnSuccess || agentController.state.isMoving) {
+                agentController.applyPathResult(result, occupancyGrid, floorReference)
             }
             synchronized(pathLock) {
                 latestPathResult = result
@@ -395,7 +443,94 @@ class ArSessionManager(private val activity: Activity) {
     }
 
     /**
-     * Clears start, goal, and active path.
+     * Spawns the autonomous agent at the start position and initiates path following.
+     */
+    fun spawnOrStartAgent() {
+        if (!hasNavStart || !hasNavGoal) {
+            synchronized(anchorLock) {
+                lastHitMessage = "Select Start and Goal first"
+            }
+            return
+        }
+
+        if (agentController.state == AgentState.PAUSED) {
+            agentController.resume()
+            return
+        }
+
+        agentController.spawnAt(navStartCol, navStartRow, occupancyGrid, floorReference)
+
+        val res = latestPathResult
+        if (res != null && res.status.isSuccessful &&
+            res.startCol == navStartCol && res.startRow == navStartRow &&
+            res.goalCol == navGoalCol && res.goalRow == navGoalRow) {
+            agentController.applyPathResult(res, occupancyGrid, floorReference)
+        } else {
+            requestPathSearch(startAgentOnSuccess = true)
+        }
+    }
+
+    /**
+     * Toggles pause/resume on the autonomous agent simulation.
+     */
+    fun toggleAgentPause() {
+        if (agentController.state == AgentState.PAUSED) {
+            agentController.resume()
+        } else if (agentController.state.isMoving) {
+            agentController.pause()
+        }
+    }
+
+    /**
+     * Resets the agent back to start position and clears navigation progress.
+     */
+    fun resetAgent() {
+        agentController.reset()
+        if (hasNavStart) {
+            agentController.spawnAt(navStartCol, navStartRow, occupancyGrid, floorReference)
+        }
+    }
+
+    /**
+     * Synchronizes current agent state with AgentRenderer for OpenGL ES 3.0 rendering.
+     */
+    fun syncAgent(renderer: AgentRenderer) {
+        val pose = agentController.getPoseSnapshot(occupancyGrid.gridVersion)
+        renderer.updateAgentPose(pose)
+    }
+
+    /**
+     * Asynchronously replans path from agent's CURRENT cell to goal cell.
+     */
+    private fun replanAgentPath(fromCol: Int, fromRow: Int, toCol: Int, toRow: Int) {
+        navExecutor.execute {
+            val result = occupancyGrid.withLock {
+                pathfinder.findPath(
+                    startCol = fromCol,
+                    startRow = fromRow,
+                    goalCol = toCol,
+                    goalRow = toRow,
+                    costGrid = occupancyGrid.traversalCostGrid,
+                    inflatedStates = occupancyGrid.inflatedCellStates,
+                    occupancyGrid = occupancyGrid,
+                    floorReference = floorReference,
+                    gridVersion = occupancyGrid.gridVersion
+                )
+            }
+            agentController.applyPathResult(result, occupancyGrid, floorReference)
+            synchronized(pathLock) {
+                latestPathResult = result
+                hasNewPathData = true
+            }
+            synchronized(anchorLock) {
+                lastHitMessage = "Replan: " + result.status.name + " (" + result.searchTimeMs + "ms)"
+            }
+            Log.i(TAG, "Agent replan executed from ($fromCol, $fromRow) to ($toCol, $toRow): status=${result.status}, cost=${result.totalCost}")
+        }
+    }
+
+    /**
+     * Clears start, goal, and active path, and halts the agent.
      */
     fun clearPath() {
         synchronized(pathLock) {
@@ -408,6 +543,7 @@ class ArSessionManager(private val activity: Activity) {
             latestPathResult = null
             hasNewPathData = true
         }
+        agentController.reset()
         synchronized(anchorLock) {
             lastHitMessage = "Navigation path cleared"
         }

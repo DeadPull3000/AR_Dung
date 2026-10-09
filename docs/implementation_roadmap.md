@@ -33,8 +33,9 @@ The MVP is the smallest complete end-to-end slice demonstrating the core feedbac
   - *Status:* COMPLETED & VERIFIED on physical tablet at 59.8-60.3 FPS rendering, 9.0-9.4 Hz grid updates, 1.5-2.3 ms processing time, verified across Tests A through G.
 - **Milestone 8:** Custom A* pathfinding, line-of-sight smoothing & 3D AR path visualization (Preallocated zero-allocation primitive indexed min-heap, 8-connected movement with metric step costs, strict diagonal corner-cutting prevention, admissible octile heuristic, supercover raycast path smoothing, world-space model matrix transformation, OpenGL ES 3.0 path ribbon & 3D start/goal diamond markers, async navigation executor, verified on physical hardware).
   - *Status:* COMPLETED & VERIFIED on Samsung Galaxy Tab S8+ (`SM-X800`) at 59.6-60.8 FPS rendering, 0.07-0.24 ms search latency, 10/10 unit tests passing, physical room verified across Tests A through F.
-- **Milestone 9:** Autonomous AR agent navigation & kinematics (Virtual agent entity spawning, waypoint pursuit steering, dynamic obstacle avoidance, automatic replanning).
-- **Milestone 10:** Virtual agent movement (Agent following computed waypoints).
+- **Milestone 9:** Autonomous AR agent navigation & kinematics (Single virtual agent entity spawning, deterministic floor-plane kinematics, pure pursuit directional steering with clamped turn-rate, dynamic event-driven replanning preserving goal from current agent cell, OpenGL ES 3.0 3D octagonal body and forward arrow renderer, verified on physical hardware).
+  - *Status:* COMPLETED & VERIFIED on Samsung Galaxy Tab S8+ (`SM-X800`) at 59.5-60.7 FPS rendering, 0.018 ms simulation time, 20/20 unit tests passing, physical room verified across Tests A through H.
+- **Milestone 10:** Interactive Player Interaction & Dynamic Retargeting (Real-time goal relocation while agent is en route, tap retargeting).
 - **Milestone 11:** Autonomous agent FSM (Idle, Wander, Target states).
 - **Milestone 12:** Depth occlusion shader (Real-world object occlusion over virtual geometry).
 - **Milestone 13:** Procedural dungeon generation (Generating virtual walls and corridors bounded by room layout).
