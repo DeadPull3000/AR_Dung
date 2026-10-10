@@ -4,8 +4,10 @@ import com.embedded.argame.environment.FloorReference
 import com.embedded.argame.environment.NavigationCellState
 import com.embedded.argame.environment.OccupancyGrid
 import com.embedded.argame.environment.UnknownCostPolicy
+import com.embedded.argame.perception.CameraIntrinsicsData
 import com.google.ar.core.Pose
 import com.google.ar.core.TrackingState
+import java.nio.ByteBuffer
 import kotlin.math.abs
 import kotlin.math.sqrt
 
@@ -25,21 +27,26 @@ data class PlayerPerceptionSnapshot(
     val distanceToCreatureMeters: Float = Float.MAX_VALUE,
     val isLineOfSightClear: Boolean = false,
     val isPlayerDetected: Boolean = false,
+    val depthVisibility: DepthVisibilitySnapshot = DepthVisibilitySnapshot(),
     val timestampMs: Long = 0L
 )
 
 /**
- * Perception subsystem for reactive creature AI (Milestone 10, Section 4).
+ * Perception subsystem for reactive creature AI (Milestones 10 & 11).
  *
  * Estimates the player's floor position using ARCore camera pose as player proxy,
- * determines horizontal Euclidean proximity, and evaluates geometric line of sight
- * across the 2.5D occupancy grid.
+ * determines horizontal Euclidean proximity, evaluates geometric line of sight
+ * across the 2.5D occupancy grid, and fuses 16-bit metric depth visibility.
  */
 class CreaturePerception(
     val config: CreatureAIConfig = CreatureAIConfig()
 ) {
-    // Reusable temp array to avoid heap allocations in frame perception loop
+    // Embedded depth-aware visibility estimator (Milestone 11)
+    val depthEstimator: DepthVisibilityEstimator = DepthVisibilityEstimator(config)
+
+    // Reusable temp arrays to avoid heap allocations in frame perception loop
     private val tempFloorPoint = FloatArray(3)
+    private val tempWorldPoint = FloatArray(3)
 
     /**
      * Evaluates the current perception state from camera pose and room references.
@@ -52,6 +59,12 @@ class CreaturePerception(
      * @param creatureFloorZ Creature's current floor-space Z coordinate.
      * @param creatureCellCol Creature's current discrete grid column [0..79].
      * @param creatureCellRow Creature's current discrete grid row [0..79].
+     * @param depthBuffer Direct ByteBuffer of the 16-bit metric depth image (optional).
+     * @param depthWidth Depth image width in pixels.
+     * @param depthHeight Depth image height in pixels.
+     * @param depthRowStride Depth image row stride in bytes.
+     * @param depthPixelStride Depth image pixel stride in bytes.
+     * @param intrinsics Camera image intrinsics for pinhole projection.
      * @param currentTimeMs System timestamp in milliseconds.
      */
     fun evaluate(
@@ -63,6 +76,12 @@ class CreaturePerception(
         creatureFloorZ: Float,
         creatureCellCol: Int,
         creatureCellRow: Int,
+        depthBuffer: ByteBuffer? = null,
+        depthWidth: Int = 0,
+        depthHeight: Int = 0,
+        depthRowStride: Int = 0,
+        depthPixelStride: Int = 0,
+        intrinsics: CameraIntrinsicsData = CameraIntrinsicsData(),
         currentTimeMs: Long = System.currentTimeMillis()
     ): PlayerPerceptionSnapshot {
         val isTracking = (trackingState == TrackingState.TRACKING) &&
@@ -84,13 +103,19 @@ class CreaturePerception(
             creatureFloorZ = creatureFloorZ,
             creatureCellCol = creatureCellCol,
             creatureCellRow = creatureCellRow,
+            cameraPose = cameraPose,
+            depthBuffer = depthBuffer,
+            depthWidth = depthWidth,
+            depthHeight = depthHeight,
+            depthRowStride = depthRowStride,
+            depthPixelStride = depthPixelStride,
+            intrinsics = intrinsics,
             currentTimeMs = currentTimeMs
         )
     }
 
     /**
-     * Overloaded evaluation method using explicit coordinates, enabling deterministic unit testing
-     * without ARCore Pose mocks.
+     * Backward-compatible perception evaluation using explicit coordinates (Milestone 10).
      */
     fun evaluate(
         isTracking: Boolean,
@@ -105,9 +130,70 @@ class CreaturePerception(
         creatureCellRow: Int,
         currentTimeMs: Long = System.currentTimeMillis()
     ): PlayerPerceptionSnapshot {
+        return evaluate(
+            isTracking = isTracking,
+            playerWorldX = playerWorldX,
+            playerWorldY = playerWorldY,
+            playerWorldZ = playerWorldZ,
+            floorReference = floorReference,
+            occupancyGrid = occupancyGrid,
+            creatureFloorX = creatureFloorX,
+            creatureFloorZ = creatureFloorZ,
+            creatureCellCol = creatureCellCol,
+            creatureCellRow = creatureCellRow,
+            cameraPose = null,
+            depthBuffer = null,
+            depthWidth = 0,
+            depthHeight = 0,
+            depthRowStride = 0,
+            depthPixelStride = 0,
+            worldToCamMatrix = null,
+            intrinsics = CameraIntrinsicsData(),
+            currentTimeMs = currentTimeMs
+        )
+    }
+
+    /**
+     * Overloaded evaluation method using explicit coordinates and optional depth (Milestone 11).
+     */
+    fun evaluate(
+        isTracking: Boolean,
+        playerWorldX: Float,
+        playerWorldY: Float,
+        playerWorldZ: Float,
+        floorReference: FloorReference?,
+        occupancyGrid: OccupancyGrid?,
+        creatureFloorX: Float,
+        creatureFloorZ: Float,
+        creatureCellCol: Int,
+        creatureCellRow: Int,
+        cameraPose: Pose? = null,
+        depthBuffer: ByteBuffer? = null,
+        depthWidth: Int = 0,
+        depthHeight: Int = 0,
+        depthRowStride: Int = 0,
+        depthPixelStride: Int = 0,
+        worldToCamMatrix: FloatArray? = null,
+        intrinsics: CameraIntrinsicsData = CameraIntrinsicsData(),
+        currentTimeMs: Long = System.currentTimeMillis()
+    ): PlayerPerceptionSnapshot {
         if (!isTracking || occupancyGrid == null) {
+            val depthSnapshot = if (!isTracking) {
+                DepthVisibilitySnapshot(
+                    state = VisibilityState.UNKNOWN,
+                    reason = VisibilityReason.TRACKING_LOST,
+                    timestampMs = currentTimeMs
+                )
+            } else {
+                DepthVisibilitySnapshot(
+                    state = VisibilityState.UNKNOWN,
+                    reason = VisibilityReason.FALLBACK_GRID_ONLY,
+                    timestampMs = currentTimeMs
+                )
+            }
             return PlayerPerceptionSnapshot(
                 isTrackingValid = false,
+                depthVisibility = depthSnapshot,
                 timestampMs = currentTimeMs
             )
         }
@@ -148,7 +234,59 @@ class CreaturePerception(
             false
         }
 
-        val detected = isTracking && inGrid && withinRange && losClear
+        // 5. Evaluate Depth-Aware Visibility (Capability A)
+        val creatureWorldX: Float
+        val creatureWorldY: Float
+        val creatureWorldZ: Float
+        if (floorReference != null && floorReference.isTracking) {
+            // Representative body center is 0.15m above floor contact plane
+            floorReference.floorToWorldPoint(creatureFloorX, 0.15f, creatureFloorZ, tempWorldPoint, 0)
+            creatureWorldX = tempWorldPoint[0]
+            creatureWorldY = tempWorldPoint[1]
+            creatureWorldZ = tempWorldPoint[2]
+        } else {
+            creatureWorldX = creatureFloorX
+            creatureWorldY = 0.15f
+            creatureWorldZ = creatureFloorZ
+        }
+
+        val depthSnapshot = if (cameraPose != null) {
+            depthEstimator.evaluate(
+                isTracking = isTracking,
+                creatureWorldX = creatureWorldX,
+                creatureWorldY = creatureWorldY,
+                creatureWorldZ = creatureWorldZ,
+                cameraPose = cameraPose,
+                intrinsics = intrinsics,
+                depthBuffer = depthBuffer,
+                depthWidth = depthWidth,
+                depthHeight = depthHeight,
+                depthRowStride = depthRowStride,
+                depthPixelStride = depthPixelStride,
+                gridLineOfSightClear = losClear,
+                gridReason = if (losClear) VisibilityReason.CLEAR else VisibilityReason.GRID_OBSTACLE,
+                currentTimeMs = currentTimeMs
+            )
+        } else {
+            depthEstimator.evaluate(
+                isTracking = isTracking,
+                creatureWorldX = creatureWorldX,
+                creatureWorldY = creatureWorldY,
+                creatureWorldZ = creatureWorldZ,
+                worldToCamMatrix = worldToCamMatrix,
+                intrinsics = intrinsics,
+                depthBuffer = depthBuffer,
+                depthWidth = depthWidth,
+                depthHeight = depthHeight,
+                depthRowStride = depthRowStride,
+                depthPixelStride = depthPixelStride,
+                gridLineOfSightClear = losClear,
+                gridReason = if (losClear) VisibilityReason.CLEAR else VisibilityReason.GRID_OBSTACLE,
+                currentTimeMs = currentTimeMs
+            )
+        }
+
+        val detected = isTracking && inGrid && withinRange && (depthSnapshot.state == VisibilityState.VISIBLE)
 
         return PlayerPerceptionSnapshot(
             isTrackingValid = true,
@@ -163,6 +301,7 @@ class CreaturePerception(
             distanceToCreatureMeters = distance,
             isLineOfSightClear = losClear,
             isPlayerDetected = detected,
+            depthVisibility = depthSnapshot,
             timestampMs = currentTimeMs
         )
     }

@@ -766,27 +766,43 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
             }
 
             val targetCellStr = if (aiSnapshot.targetCol >= 0) "[c${aiSnapshot.targetCol}, r${aiSnapshot.targetRow}]" else "[-, -]"
-            val lastKnownStr = if (aiSnapshot.lastKnownPlayerCol >= 0) "[c${aiSnapshot.lastKnownPlayerCol}, r${aiSnapshot.lastKnownPlayerRow}]" else "[-, -]"
+            val lastKnownAgeSec = aiSnapshot.lastKnownLocationAgeMs / 1000f
+            val lastKnownStr = if (aiSnapshot.lastKnownPlayerCol >= 0) {
+                String.format(Locale.US, "[c%d, r%d] (%.1fs ago)", aiSnapshot.lastKnownPlayerCol, aiSnapshot.lastKnownPlayerRow, lastKnownAgeSec)
+            } else "[-, -]"
+            val candStr = if (aiSnapshot.totalSearchCandidates > 0) {
+                "${aiSnapshot.currentSearchCandidateIndex + 1}/${aiSnapshot.totalSearchCandidates}"
+            } else "0/0"
+
             tvAiDetails.text = String.format(
                 Locale.US,
-                "Target: %s %s | LastKnown: %s | Req #%d",
+                "Target: %s %s (Cand %s) | LastKnown: %s | Req #%d",
                 aiSnapshot.targetType.name,
                 targetCellStr,
+                candStr,
                 lastKnownStr,
                 aiSnapshot.activeRequestId
             )
 
             val playerDistStr = if (aiSnapshot.playerDistanceMeters < 100f) String.format(Locale.US, "%.2fm", aiSnapshot.playerDistanceMeters) else "---m"
-            val playerCellStr = if (aiSnapshot.playerCellCol >= 0) "[c${aiSnapshot.playerCellCol}, r${aiSnapshot.playerCellRow}]" else "[-, -]"
             val losStr = if (aiSnapshot.isLineOfSightClear) "CLEAR" else "BLOCKED"
-            val detectedStr = if (aiSnapshot.isPlayerDetected) "DETECTED" else "HIDDEN"
+            val visStateStr = aiSnapshot.visibilityState.name
+            val visReasonStr = aiSnapshot.visibilityReason.name
+            val depthInfoStr = if (aiSnapshot.observedDepthMeters > 0f) {
+                String.format(Locale.US, "Obs: %.2fm / Exp: %.2fm", aiSnapshot.observedDepthMeters, aiSnapshot.expectedDepthMeters)
+            } else {
+                String.format(Locale.US, "Exp: %.2fm", aiSnapshot.expectedDepthMeters)
+            }
+
             tvAiPerception.text = String.format(
                 Locale.US,
-                "Player Proxy: %s | Dist: %s | LoS: %s (%s)",
-                playerCellStr,
-                playerDistStr,
+                "Vis: %s (%s, %.0f%%) [%s] | GridLoS: %s | Dist: %s",
+                visStateStr,
+                visReasonStr,
+                aiSnapshot.visibilityConfidence * 100f,
+                depthInfoStr,
                 losStr,
-                detectedStr
+                playerDistStr
             )
 
             // Display Performance Telemetry

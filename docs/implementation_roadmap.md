@@ -37,11 +37,13 @@ The MVP is the smallest complete end-to-end slice demonstrating the core feedbac
   - *Status:* COMPLETED & VERIFIED on Samsung Galaxy Tab S8+ (`SM-X800`) at 59.5-60.7 FPS rendering, 0.018 ms simulation time, 20/20 unit tests passing, physical room verified across Tests A through H.
 - **Milestone 10:** Reactive Creature AI, Player Awareness & Behaviour State Machine (Autonomous floor patrol, ARCore camera proxy proximity detection, 2.5D Bresenham line-of-sight raycast, pursuit pathfinding via existing A* navigation, last known location preservation, bounded multi-candidate search, return to patrol, asynchronous request token protection, safe recovery, state-reactive 3D color rendering, HUD controls & telemetry).
   - *Status:* COMPLETED & VERIFIED on Samsung Galaxy Tab S8+ (`SM-X800`) at 59.8–60.3 FPS rendering, 9.1–9.3 Hz depth perception, 40/40 unit tests passing, physical room verified across Tests A through J.
-- **Milestone 11:** Depth occlusion shader (Real-world object occlusion over virtual geometry using ARCore depth buffer in GL fragment shaders).
-- **Milestone 12:** Procedural dungeon generation (Generating virtual walls and corridors bounded by room layout).
-- **Milestone 13:** Advanced AI tactics & Spatial Audio (Cover-aware movement, spatial audio cues for creature state transitions).
-- **Milestone 14:** Performance profiling & Thermal management (Frame timing, heap churn, thermal and battery profiling).
-- **Milestone 15:** Final game integration (Objectives, win/lose conditions, polished UI).
+- **Milestone 11:** Depth-Aware Visibility, Occlusion & Cover-Aware Search (Geometric pinhole camera projection, 5×5 median 16-bit metric depth sampling, adaptive noise margins, tri-state VISIBLE/OCCLUDED/UNKNOWN classification with 10 diagnostic reasons, temporal confirmation hysteresis, evidence fusion with 2.5D grid line-of-sight, frozen last-known player proxy tracking, cover-aware candidate search along obstacle boundaries, candidate separation enforcement, 5s search budget, safe recovery to patrol, zero-allocation GL evaluation loops).
+  - *Status:* COMPLETED & VERIFIED on Samsung Galaxy Tab S8+ (`SM-X800`) at 59.8–60.1 FPS rendering, 9.2–9.5 Hz depth perception, 65/65 unit tests passing, physical room verified across Tests A through L.
+- **Milestone 12:** Real-Time Depth Occlusion Shader (Real-world physical object occlusion over virtual creature geometry using ARCore 16-bit depth texture in OpenGL ES 3.0 fragment shaders).
+- **Milestone 13:** Procedural dungeon generation (Generating virtual walls, corridors, and portals bounded by physical room occupancy grid).
+- **Milestone 14:** Spatial audio & Advanced AI tactics (Spatial audio cues for creature state transitions, audio-guided perception).
+- **Milestone 15:** Performance profiling & Thermal management (Frame timing, heap churn, thermal and battery profiling).
+- **Milestone 16:** Final game integration (Objectives, win/lose conditions, polished UI).
 
 ## 3. Deliberately Deferred ("Do Not Build Yet")
 - Game engines (Unity, Unreal)

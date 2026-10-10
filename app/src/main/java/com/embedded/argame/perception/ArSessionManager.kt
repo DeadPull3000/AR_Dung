@@ -156,6 +156,15 @@ class ArSessionManager(private val activity: Activity) {
     // Milestone 10 Reactive Creature AI Subsystem
     val creatureAiController = CreatureAIController()
 
+    // Milestone 11 Latest 16-bit metric depth snapshot buffer for Depth-Aware Visibility
+    private val latestDepthLock = Any()
+    private var latestDepthBuffer: ByteBuffer? = null
+    private var latestDepthWidth = 0
+    private var latestDepthHeight = 0
+    private var latestDepthRowStride = 0
+    private var latestDepthPixelStride = 0
+    private var latestDepthIntrinsics = CameraIntrinsicsData()
+
     init {
         agentController.onReplanRequested = { fromCol, fromRow, toCol, toRow ->
             Log.i(TAG, "Agent dynamic replan requested: ($fromCol, $fromRow) -> ($toCol, $toRow)")
@@ -400,6 +409,22 @@ class ArSessionManager(private val activity: Activity) {
      */
     private fun updateCreatureAi(frame: Frame) {
         val pose = agentController.getPoseSnapshot(occupancyGrid.gridVersion)
+        val dBuf: ByteBuffer?
+        val dW: Int
+        val dH: Int
+        val dRow: Int
+        val dPix: Int
+        val dIntrinsics: CameraIntrinsicsData
+
+        synchronized(latestDepthLock) {
+            dBuf = latestDepthBuffer
+            dW = latestDepthWidth
+            dH = latestDepthHeight
+            dRow = latestDepthRowStride
+            dPix = latestDepthPixelStride
+            dIntrinsics = latestDepthIntrinsics
+        }
+
         occupancyGrid.withLock {
             creatureAiController.update(
                 cameraPose = frame.camera.pose,
@@ -407,6 +432,12 @@ class ArSessionManager(private val activity: Activity) {
                 floorReference = floorReference,
                 occupancyGrid = occupancyGrid,
                 agentPose = pose,
+                depthBuffer = dBuf,
+                depthWidth = dW,
+                depthHeight = dH,
+                depthRowStride = dRow,
+                depthPixelStride = dPix,
+                intrinsics = dIntrinsics,
                 currentTimeMs = System.currentTimeMillis()
             )
         }
@@ -1124,6 +1155,23 @@ class ArSessionManager(private val activity: Activity) {
                 val imgHeight = depthImage.height
                 val timestamp = depthImage.timestamp
 
+                // Milestone 11: Copy 16-bit depth plane to preallocated direct ByteBuffer for Creature AI
+                synchronized(latestDepthLock) {
+                    val remaining = buffer.remaining()
+                    if (latestDepthBuffer == null || latestDepthBuffer!!.capacity() < remaining) {
+                        latestDepthBuffer = ByteBuffer.allocateDirect(remaining).order(ByteOrder.nativeOrder())
+                    }
+                    latestDepthBuffer!!.clear()
+                    val origPos = buffer.position()
+                    latestDepthBuffer!!.put(buffer)
+                    buffer.position(origPos)
+                    latestDepthBuffer!!.flip()
+                    latestDepthWidth = imgWidth
+                    latestDepthHeight = imgHeight
+                    latestDepthRowStride = rowStride
+                    latestDepthPixelStride = pixelStride
+                }
+
                 if (depthUpdateFrameCount % 10 == 0) {
                     val off = (imgHeight / 2) * rowStride + (imgWidth / 2) * pixelStride
                     val b0 = buffer.get(off).toInt() and 0xFF
@@ -1309,6 +1357,10 @@ class ArSessionManager(private val activity: Activity) {
                     width = intrinsics.imageDimensions[0],
                     height = intrinsics.imageDimensions[1]
                 )
+
+                synchronized(latestDepthLock) {
+                    latestDepthIntrinsics = intrinsicsData
+                }
 
                 currentDepthDiagnostics = DepthDiagnostics(
                     isSupported = true,

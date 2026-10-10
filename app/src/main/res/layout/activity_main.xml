@@ -31,7 +31,7 @@
             android:id="@+id/tvHeader"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="AR EMBEDDED GAME — MILESTONE 10 (CREATURE AI)"
+            android:text="AR EMBEDDED GAME — MILESTONE 11 (DEPTH VISIBILITY &amp; COVER SEARCH)"
             android:textColor="@color/accent_cyan"
             android:textSize="14sp"
             android:textStyle="bold" />
@@ -550,11 +550,11 @@
             android:layout_marginBottom="6dp"
             android:background="#30363D" />
 
-        <!-- Milestone 10 Reactive Creature AI Controls & Telemetry -->
+        <!-- Milestone 11 Depth Visibility & Cover-Aware Search Controls & Telemetry -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Reactive Creature AI (Milestone 10):"
+            android:text="Creature AI &amp; Depth Visibility (Milestone 11):"
             android:textColor="@color/accent_purple"
             android:textSize="11sp"
             android:textStyle="bold" />

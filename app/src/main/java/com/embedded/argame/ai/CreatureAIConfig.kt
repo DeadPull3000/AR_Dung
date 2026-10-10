@@ -51,5 +51,31 @@ data class CreatureAIConfig(
     val blockedCooldownMs: Long = 1000L,
 
     /** Conservative policy: whether unobserved UNKNOWN cells block creature line of sight. */
-    val unknownCellsBlockLineOfSight: Boolean = true
+    val unknownCellsBlockLineOfSight: Boolean = true,
+
+    // --- Milestone 11: Depth-Aware Visibility & Cover-Aware Search Parameters ---
+
+    /** Radius in depth-image pixels for local neighbourhood sampling (2 = 5x5 patch). */
+    val depthSamplingPatchRadius: Int = 2,
+
+    /** Minimum valid metric depth readings required within patch to accept depth evidence. */
+    val minValidDepthSamples: Int = 3,
+
+    /** Absolute minimum distance margin (meters) closer than expected virtual depth to trigger occlusion. */
+    val minOcclusionMarginMeters: Float = 0.15f,
+
+    /** Relative occlusion margin proportional to expected distance (e.g. 0.05 = 5%). */
+    val relativeOcclusionMargin: Float = 0.05f,
+
+    /** Consecutive consistent evaluations required before confirming occlusion transition (hysteresis). */
+    val visibilityConfirmationCount: Int = 2,
+
+    /** Maximum age of depth evidence before expiring to UNKNOWN (milliseconds). */
+    val maxEvidenceAgeMs: Long = 600L,
+
+    /** Minimum separation between selected search candidate targets (meters). */
+    val minCandidateSeparationMeters: Float = 0.35f,
+
+    /** Preference bonus weight for candidate cells located along physical obstacle cover boundaries. */
+    val coverBoundaryWeight: Float = 1.5f
 )

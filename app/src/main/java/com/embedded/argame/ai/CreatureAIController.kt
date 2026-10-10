@@ -8,8 +8,10 @@ import com.embedded.argame.navigation.AgentPose
 import com.embedded.argame.navigation.AgentState
 import com.embedded.argame.navigation.PathResult
 import com.embedded.argame.navigation.PathStatus
+import com.embedded.argame.perception.CameraIntrinsicsData
 import com.google.ar.core.Pose
 import com.google.ar.core.TrackingState
+import java.nio.ByteBuffer
 import java.util.Random
 import kotlin.math.cos
 import kotlin.math.sin
@@ -85,6 +87,15 @@ class CreatureAIController(
     private var currentSearchCandidateIndex: Int = 0
     private var searchCandidateWaitStartTimeMs: Long = 0L
     private var isWaitingAtSearchCandidate: Boolean = false
+    var frozenSearchCol: Int = -1
+        private set
+    var frozenSearchRow: Int = -1
+        private set
+    var frozenSearchFloorX: Float = 0f
+        private set
+    var frozenSearchFloorZ: Float = 0f
+        private set
+    val visitedSearchCells = mutableSetOf<Pair<Int, Int>>()
 
     // Blocked recovery
     private var lastBlockedTimeMs: Long = 0L
@@ -139,6 +150,11 @@ class CreatureAIController(
             lastKnownPlayerRow = -1
             lastKnownPlayerFloorX = 0f
             lastKnownPlayerFloorZ = 0f
+            frozenSearchCol = -1
+            frozenSearchRow = -1
+            frozenSearchFloorX = 0f
+            frozenSearchFloorZ = 0f
+            visitedSearchCells.clear()
             lastSeenPlayerTimeMs = 0L
             lastChasePathRequestTimeMs = 0L
             isPausingAtPatrolPoint = false
@@ -158,6 +174,12 @@ class CreatureAIController(
      * @param floorReference Active FloorReference.
      * @param occupancyGrid Active OccupancyGrid.
      * @param agentPose Current snapshot of the moving agent.
+     * @param depthBuffer Direct ByteBuffer of the 16-bit metric depth image (optional).
+     * @param depthWidth Depth image width in pixels.
+     * @param depthHeight Depth image height in pixels.
+     * @param depthRowStride Depth image row stride in bytes.
+     * @param depthPixelStride Depth image pixel stride in bytes.
+     * @param intrinsics Camera image intrinsics for pinhole projection.
      * @param currentTimeMs Current system timestamp in milliseconds.
      */
     fun update(
@@ -166,6 +188,12 @@ class CreatureAIController(
         floorReference: FloorReference?,
         occupancyGrid: OccupancyGrid?,
         agentPose: AgentPose,
+        depthBuffer: ByteBuffer? = null,
+        depthWidth: Int = 0,
+        depthHeight: Int = 0,
+        depthRowStride: Int = 0,
+        depthPixelStride: Int = 0,
+        intrinsics: CameraIntrinsicsData = CameraIntrinsicsData(),
         currentTimeMs: Long = System.currentTimeMillis()
     ) {
         val isTracking = (trackingState == TrackingState.TRACKING) &&
@@ -184,13 +212,20 @@ class CreatureAIController(
             floorReference = floorReference,
             occupancyGrid = occupancyGrid,
             agentPose = agentPose,
+            cameraPose = cameraPose,
+            depthBuffer = depthBuffer,
+            depthWidth = depthWidth,
+            depthHeight = depthHeight,
+            depthRowStride = depthRowStride,
+            depthPixelStride = depthPixelStride,
+            worldToCamMatrix = null,
+            intrinsics = intrinsics,
             currentTimeMs = currentTimeMs
         )
     }
 
     /**
-     * Overloaded update tick accepting explicit coordinates and tracking state,
-     * enabling fully deterministic unit tests without ARCore Pose mocks.
+     * Backward-compatible update tick accepting explicit coordinates and tracking state (Milestone 10).
      */
     fun update(
         isTracking: Boolean,
@@ -202,6 +237,47 @@ class CreatureAIController(
         agentPose: AgentPose,
         currentTimeMs: Long = System.currentTimeMillis()
     ) {
+        update(
+            isTracking = isTracking,
+            playerWorldX = playerWorldX,
+            playerWorldY = playerWorldY,
+            playerWorldZ = playerWorldZ,
+            floorReference = floorReference,
+            occupancyGrid = occupancyGrid,
+            agentPose = agentPose,
+            cameraPose = null,
+            depthBuffer = null,
+            depthWidth = 0,
+            depthHeight = 0,
+            depthRowStride = 0,
+            depthPixelStride = 0,
+            worldToCamMatrix = null,
+            intrinsics = CameraIntrinsicsData(),
+            currentTimeMs = currentTimeMs
+        )
+    }
+
+    /**
+     * Overloaded update tick accepting explicit coordinates, depth buffer, and camera state (Milestone 11).
+     */
+    fun update(
+        isTracking: Boolean,
+        playerWorldX: Float,
+        playerWorldY: Float,
+        playerWorldZ: Float,
+        floorReference: FloorReference?,
+        occupancyGrid: OccupancyGrid?,
+        agentPose: AgentPose,
+        cameraPose: Pose? = null,
+        depthBuffer: ByteBuffer? = null,
+        depthWidth: Int = 0,
+        depthHeight: Int = 0,
+        depthRowStride: Int = 0,
+        depthPixelStride: Int = 0,
+        worldToCamMatrix: FloatArray? = null,
+        intrinsics: CameraIntrinsicsData = CameraIntrinsicsData(),
+        currentTimeMs: Long = System.currentTimeMillis()
+    ) {
         synchronized(lock) {
             if (!isEnabled) {
                 if (state != CreatureAIState.PAUSED) {
@@ -211,7 +287,7 @@ class CreatureAIController(
                 return
             }
 
-            // 1. Evaluate Player Perception
+            // 1. Evaluate Player Perception (with 2.5D grid LOS + 16-bit metric depth fusion)
             val perceptionSnapshot = perception.evaluate(
                 isTracking = isTracking,
                 playerWorldX = playerWorldX,
@@ -223,6 +299,14 @@ class CreatureAIController(
                 creatureFloorZ = agentPose.floorZ,
                 creatureCellCol = agentPose.cellCol,
                 creatureCellRow = agentPose.cellRow,
+                cameraPose = cameraPose,
+                depthBuffer = depthBuffer,
+                depthWidth = depthWidth,
+                depthHeight = depthHeight,
+                depthRowStride = depthRowStride,
+                depthPixelStride = depthPixelStride,
+                worldToCamMatrix = worldToCamMatrix,
+                intrinsics = intrinsics,
                 currentTimeMs = currentTimeMs
             )
             lastPerception = perceptionSnapshot
@@ -527,44 +611,30 @@ class CreatureAIController(
         state = CreatureAIState.SEARCHING
         searchStartTimeMs = currentTimeMs
         isWaitingAtSearchCandidate = false
-        lastStatusMessage = "LOST SIGHT: Searching last known position"
+        lastStatusMessage = "LOST SIGHT: Searching cover around last known position"
 
-        // Generate bounded search candidates around last known location
+        // Freeze last known player position (Milestone 11, Section 5.1)
+        frozenSearchCol = lastKnownPlayerCol
+        frozenSearchRow = lastKnownPlayerRow
+        frozenSearchFloorX = lastKnownPlayerFloorX
+        frozenSearchFloorZ = lastKnownPlayerFloorZ
+
+        // Generate bounded cover-aware search candidates
         searchCandidates.clear()
-        if (lastKnownPlayerCol in 0 until occupancyGrid.numCellsX &&
-            lastKnownPlayerRow in 0 until occupancyGrid.numCellsZ
+        visitedSearchCells.clear()
+
+        if (frozenSearchCol in 0 until occupancyGrid.numCellsX &&
+            frozenSearchRow in 0 until occupancyGrid.numCellsZ
         ) {
-            // First candidate is the last known position itself
-            searchCandidates.add(Pair(lastKnownPlayerCol, lastKnownPlayerRow))
-
-            // Sample up to (maxSearchCandidates - 1) traversable neighbor candidates
-            val radiusCells = (config.searchRadiusMeters / occupancyGrid.cellSizeMeters).toInt().coerceAtLeast(1)
-            val offsets = arrayOf(
-                Pair(radiusCells, 0),
-                Pair(-radiusCells, 0),
-                Pair(0, radiusCells),
-                Pair(0, -radiusCells),
-                Pair((radiusCells * 0.7f).toInt(), (radiusCells * 0.7f).toInt()),
-                Pair(-(radiusCells * 0.7f).toInt(), -(radiusCells * 0.7f).toInt())
-            )
-
-            val costGrid = occupancyGrid.traversalCostGrid
-            for (offset in offsets) {
-                if (searchCandidates.size >= config.maxSearchCandidates) break
-                val c = lastKnownPlayerCol + offset.first
-                val r = lastKnownPlayerRow + offset.second
-                if (c in 0 until occupancyGrid.numCellsX && r in 0 until occupancyGrid.numCellsZ) {
-                    val idx = occupancyGrid.cellToIndex(c, r)
-                    if (costGrid.isTraversable(idx)) {
-                        searchCandidates.add(Pair(c, r))
-                    }
-                }
-            }
+            val generated = generateCoverAwareSearchCandidates(frozenSearchCol, frozenSearchRow, occupancyGrid)
+            searchCandidates.addAll(generated)
         }
 
         currentSearchCandidateIndex = 0
         if (searchCandidates.isNotEmpty()) {
-            dispatchSearchCandidate(searchCandidates[0], TargetType.SEARCH_LAST_KNOWN, occupancyGrid, agentPose)
+            val first = searchCandidates[0]
+            visitedSearchCells.add(first)
+            dispatchSearchCandidate(first, TargetType.SEARCH_LAST_KNOWN, occupancyGrid, agentPose)
         } else {
             transitionToReturning(occupancyGrid, agentPose, currentTimeMs)
         }
@@ -575,13 +645,152 @@ class CreatureAIController(
         agentPose: AgentPose
     ) {
         currentSearchCandidateIndex++
+        while (currentSearchCandidateIndex < searchCandidates.size &&
+            visitedSearchCells.contains(searchCandidates[currentSearchCandidateIndex])
+        ) {
+            currentSearchCandidateIndex++
+        }
+
         if (currentSearchCandidateIndex < searchCandidates.size) {
             val candidate = searchCandidates[currentSearchCandidateIndex]
+            visitedSearchCells.add(candidate)
             dispatchSearchCandidate(candidate, TargetType.SEARCH_CANDIDATE, occupancyGrid, agentPose)
         } else {
             // All search candidates visited: transition to returning
             transitionToReturning(occupancyGrid, agentPose, System.currentTimeMillis())
         }
+    }
+
+    /**
+     * Generates cover-aware search candidate cells around the last known player position (Milestone 11, Section 5.2).
+     *
+     * Candidate selection principles:
+     * 1. Target 0 is the last known player position (or nearest traversable cell if direct cell is in obstacle/inflation zone).
+     * 2. Remaining candidates are chosen from traversable cells within [CreatureAIConfig.searchRadiusMeters] of the last known position.
+     * 3. Cells adjacent to physical obstacle boundaries receive preference weighting ([CreatureAIConfig.coverBoundaryWeight]).
+     * 4. Multi-directional angular sampling prioritizes alternative flanking approaches around cover.
+     * 5. Enforces minimum separation ([CreatureAIConfig.minCandidateSeparationMeters]) between candidates.
+     * 6. Strictly bounded to [CreatureAIConfig.maxSearchCandidates].
+     */
+    fun generateCoverAwareSearchCandidates(
+        centerCol: Int,
+        centerRow: Int,
+        occupancyGrid: OccupancyGrid
+    ): List<Pair<Int, Int>> {
+        val candidates = mutableListOf<Pair<Int, Int>>()
+        if (centerCol !in 0 until occupancyGrid.numCellsX || centerRow !in 0 until occupancyGrid.numCellsZ) {
+            return candidates
+        }
+
+        val costGrid = occupancyGrid.traversalCostGrid
+        val cellSize = occupancyGrid.cellSizeMeters
+        val radiusCells = (config.searchRadiusMeters / cellSize).toInt().coerceAtLeast(1)
+        val minSepMeters = config.minCandidateSeparationMeters
+
+        // 1. Candidate 0: Last known location itself (or nearest traversable)
+        val centerIdx = occupancyGrid.cellToIndex(centerCol, centerRow)
+        val primaryCell: Pair<Int, Int> = if (costGrid.isTraversable(centerIdx)) {
+            Pair(centerCol, centerRow)
+        } else {
+            findBestApproachCell(centerCol, centerRow, centerCol, centerRow, occupancyGrid)
+        }
+        candidates.add(primaryCell)
+
+        if (config.maxSearchCandidates <= 1) {
+            return candidates
+        }
+
+        // Helper to check separation from all selected candidates
+        fun isSeparated(col: Int, row: Int): Boolean {
+            val (fx, fz) = occupancyGrid.cellToFloorCoord(col, row)
+            for (cand in candidates) {
+                val (cx, cz) = occupancyGrid.cellToFloorCoord(cand.first, cand.second)
+                val d = distance(fx, fz, cx, cz)
+                if (d < minSepMeters) return false
+            }
+            return true
+        }
+
+        // Helper to check if a cell borders a physical obstacle (cover boundary)
+        fun hasAdjacentObstacle(col: Int, row: Int): Boolean {
+            for (dr in -1..1) {
+                for (dc in -1..1) {
+                    if (dc == 0 && dr == 0) continue
+                    val nc = col + dc
+                    val nr = row + dr
+                    if (nc in 0 until occupancyGrid.numCellsX && nr in 0 until occupancyGrid.numCellsZ) {
+                        if (occupancyGrid.getNavigationCellState(nc, nr) == NavigationCellState.PHYSICAL_OBSTACLE) {
+                            return true
+                        }
+                    }
+                }
+            }
+            return false
+        }
+
+        // 2. Multi-directional angular sampling around the last known position
+        // 8 cardinal and diagonal rays at varied distances to find flanking routes around cover
+        data class ScoredCandidate(val cell: Pair<Int, Int>, val score: Float)
+        val scoredList = mutableListOf<ScoredCandidate>()
+
+        val numRays = 8
+        val minRadiusCells = (0.4f / cellSize).toInt().coerceAtLeast(2)
+        val maxRadiusCells = radiusCells
+
+        for (ray in 0 until numRays) {
+            val angle = (ray * 2.0 * Math.PI / numRays).toFloat()
+            val cosA = cos(angle)
+            val sinA = sin(angle)
+
+            for (rDist in maxRadiusCells downTo minRadiusCells) {
+                val col = centerCol + (cosA * rDist).toInt()
+                val row = centerRow + (sinA * rDist).toInt()
+
+                if (col in 0 until occupancyGrid.numCellsX && row in 0 until occupancyGrid.numCellsZ) {
+                    val idx = occupancyGrid.cellToIndex(col, row)
+                    if (costGrid.isTraversable(idx)) {
+                        val isCover = hasAdjacentObstacle(col, row)
+                        var score = 1.0f
+                        if (isCover) score *= config.coverBoundaryWeight
+                        // Distance factor: slight preference for distinct perimeter coverage
+                        score += (rDist.toFloat() / maxRadiusCells) * 0.5f
+
+                        scoredList.add(ScoredCandidate(Pair(col, row), score))
+                        break // Take furthest traversable along this ray
+                    }
+                }
+            }
+        }
+
+        // Sort scored candidates descending by score
+        scoredList.sortByDescending { it.score }
+
+        // Select candidates respecting minimum separation
+        for (item in scoredList) {
+            if (candidates.size >= config.maxSearchCandidates) break
+            if (isSeparated(item.cell.first, item.cell.second)) {
+                candidates.add(item.cell)
+            }
+        }
+
+        // 3. Fallback scan if angular rays didn't fill maxSearchCandidates
+        if (candidates.size < config.maxSearchCandidates) {
+            for (dr in -radiusCells..radiusCells step 2) {
+                for (dc in -radiusCells..radiusCells step 2) {
+                    if (candidates.size >= config.maxSearchCandidates) break
+                    val col = centerCol + dc
+                    val row = centerRow + dr
+                    if (col in 0 until occupancyGrid.numCellsX && row in 0 until occupancyGrid.numCellsZ) {
+                        val idx = occupancyGrid.cellToIndex(col, row)
+                        if (costGrid.isTraversable(idx) && isSeparated(col, row)) {
+                            candidates.add(Pair(col, row))
+                        }
+                    }
+                }
+            }
+        }
+
+        return candidates
     }
 
     private fun dispatchSearchCandidate(
@@ -821,9 +1030,16 @@ class CreatureAIController(
      */
     fun getSnapshot(): CreatureAISnapshot {
         synchronized(lock) {
+            val now = System.currentTimeMillis()
             val searchTimeRem = if (state == CreatureAIState.SEARCHING) {
-                (config.maxSearchDurationSec - (System.currentTimeMillis() - searchStartTimeMs) / 1000f).coerceAtLeast(0f)
+                (config.maxSearchDurationSec - (now - searchStartTimeMs) / 1000f).coerceAtLeast(0f)
             } else 0f
+
+            val lastKnownAgeMs = if (lastSeenPlayerTimeMs > 0L) {
+                (now - lastSeenPlayerTimeMs).coerceAtLeast(0L)
+            } else 0L
+
+            val depthVis = lastPerception.depthVisibility
 
             return CreatureAISnapshot(
                 state = state,
@@ -845,7 +1061,15 @@ class CreatureAIController(
                 searchTimeRemainingSec = searchTimeRem,
                 activeRequestId = activeRequestId,
                 lastStatusMessage = lastStatusMessage,
-                timestampMs = System.currentTimeMillis()
+                visibilityState = depthVis.state,
+                visibilityReason = depthVis.reason,
+                visibilityConfidence = depthVis.confidence,
+                observedDepthMeters = depthVis.observedDepthMeters,
+                expectedDepthMeters = depthVis.expectedDepthMeters,
+                currentSearchCandidateIndex = currentSearchCandidateIndex,
+                totalSearchCandidates = searchCandidates.size,
+                lastKnownLocationAgeMs = lastKnownAgeMs,
+                timestampMs = now
             )
         }
     }

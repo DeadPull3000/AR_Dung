@@ -68,5 +68,13 @@ data class CreatureAISnapshot(
     val searchTimeRemainingSec: Float = 0f,
     val activeRequestId: Long = 0L,
     val lastStatusMessage: String = "Initializing",
+    val visibilityState: VisibilityState = VisibilityState.UNKNOWN,
+    val visibilityReason: VisibilityReason = VisibilityReason.DEPTH_NOT_AVAILABLE,
+    val visibilityConfidence: Float = 0f,
+    val observedDepthMeters: Float = 0f,
+    val expectedDepthMeters: Float = 0f,
+    val currentSearchCandidateIndex: Int = 0,
+    val totalSearchCandidates: Int = 0,
+    val lastKnownLocationAgeMs: Long = 0L,
     val timestampMs: Long = 0L
 )
