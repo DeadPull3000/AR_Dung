@@ -36,6 +36,7 @@ class ArRenderer(
     private val occupancyGridRenderer = OccupancyGridRenderer()
     private val pathRenderer = PathRenderer()
     private val agentRenderer = AgentRenderer()
+    private val objectiveRenderer = ObjectiveRenderer()
 
     private var viewportWidth = 0
     private var viewportHeight = 0
@@ -63,9 +64,10 @@ class ArRenderer(
         )
         pathRenderer.createOnGlThread()
         agentRenderer.createOnGlThread()
+        objectiveRenderer.createOnGlThread()
 
         sessionManager.setCameraTextureName(backgroundRenderer.textureId)
-        Log.i(TAG, "GL Surface created. Background, Plane, Anchor Marker, Depth, Occupancy Grid, Path, and Agent renderers initialized.")
+        Log.i(TAG, "GL Surface created. Background, Plane, Anchor Marker, Depth, Occupancy Grid, Path, Agent, and Objective renderers initialized.")
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -132,6 +134,10 @@ class ArRenderer(
                 // 5. Render Autonomous Virtual Agent anchored to physical floor
                 sessionManager.syncAgent(agentRenderer)
                 agentRenderer.draw(viewProjectionMatrix, sessionManager.floorReference)
+
+                // 6. Render Mission Objectives (Relics & Extraction) anchored to physical floor (Milestone 12)
+                sessionManager.syncObjectives(objectiveRenderer)
+                objectiveRenderer.draw(viewProjectionMatrix, sessionManager.floorReference)
             }
         }
 

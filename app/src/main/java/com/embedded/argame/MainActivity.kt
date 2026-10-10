@@ -18,6 +18,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.embedded.argame.ai.CreatureAIState
+import com.embedded.argame.game.GameState
 import com.embedded.argame.environment.GridDisplayMode
 import com.embedded.argame.environment.UnknownCostPolicy
 import com.embedded.argame.navigation.AgentState
@@ -85,6 +86,13 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
     private lateinit var tvAiPerception: TextView
     private lateinit var btnToggleAi: Button
     private lateinit var btnResetAi: Button
+    private lateinit var tvMissionStatus: TextView
+    private lateinit var tvMissionDetails: TextView
+    private lateinit var tvMissionGuidance: TextView
+    private lateinit var btnGenerateMission: Button
+    private lateinit var btnStartMission: Button
+    private lateinit var btnPauseMission: Button
+    private lateinit var btnRestartMission: Button
     private lateinit var tvPerformance: TextView
     private lateinit var permissionRationaleContainer: View
     private lateinit var btnGrantPermission: Button
@@ -162,9 +170,36 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
         tvAiPerception = findViewById(R.id.tvAiPerception)
         btnToggleAi = findViewById(R.id.btnToggleAi)
         btnResetAi = findViewById(R.id.btnResetAi)
+        tvMissionStatus = findViewById(R.id.tvMissionStatus)
+        tvMissionDetails = findViewById(R.id.tvMissionDetails)
+        tvMissionGuidance = findViewById(R.id.tvMissionGuidance)
+        btnGenerateMission = findViewById(R.id.btnGenerateMission)
+        btnStartMission = findViewById(R.id.btnStartMission)
+        btnPauseMission = findViewById(R.id.btnPauseMission)
+        btnRestartMission = findViewById(R.id.btnRestartMission)
         tvPerformance = findViewById(R.id.tvPerformance)
         permissionRationaleContainer = findViewById(R.id.permissionRationaleContainer)
         btnGrantPermission = findViewById(R.id.btnGrantPermission)
+
+        btnGenerateMission.setOnClickListener {
+            val success = sessionManager.generateMission()
+            if (!success) {
+                val msg = sessionManager.getMissionSnapshot().statusMessage
+                Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        btnStartMission.setOnClickListener {
+            sessionManager.startMission()
+        }
+
+        btnPauseMission.setOnClickListener {
+            sessionManager.toggleMissionPause()
+        }
+
+        btnRestartMission.setOnClickListener {
+            sessionManager.restartMission()
+        }
 
         btnSpawnAgent.setOnClickListener {
             sessionManager.spawnOrStartAgent()
@@ -804,6 +839,34 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
                 losStr,
                 playerDistStr
             )
+
+            // Display Milestone 12 Playable Mission Progression
+            val mission = sessionManager.getMissionSnapshot()
+            val extStatusStr = if (mission.isExtractionUnlocked) "ACTIVE" else "LOCKED"
+            tvMissionStatus.text = "Mission: ${mission.state.name} | ${mission.relicsCollected}/${mission.totalRelics} Relics | Ext: $extStatusStr"
+            tvMissionDetails.text = String.format(
+                Locale.US,
+                "Time: %s | Threat: %.0f%% | Navigable: %d cells",
+                mission.formattedElapsedTime,
+                mission.captureProgressPercent,
+                mission.traversableCellCount
+            )
+            tvMissionGuidance.text = "> ${mission.guidancePrompt} <"
+
+            when (mission.state) {
+                GameState.WON -> tvMissionStatus.setTextColor(getColor(R.color.accent_green))
+                GameState.LOST -> tvMissionStatus.setTextColor(getColor(android.R.color.holo_red_light))
+                GameState.PLAYING -> tvMissionStatus.setTextColor(getColor(R.color.accent_yellow))
+                GameState.PAUSED -> tvMissionStatus.setTextColor(getColor(R.color.accent_cyan))
+                GameState.READY -> tvMissionStatus.setTextColor(getColor(R.color.accent_purple))
+                GameState.SCANNING -> tvMissionStatus.setTextColor(getColor(R.color.text_secondary))
+            }
+
+            btnGenerateMission.isEnabled = (mission.state == GameState.SCANNING && mission.isNavigableSufficient) || mission.state == GameState.READY
+            btnStartMission.isEnabled = mission.state == GameState.READY
+            btnPauseMission.isEnabled = mission.state == GameState.PLAYING || mission.state == GameState.PAUSED
+            btnPauseMission.text = if (mission.state == GameState.PAUSED) "RESUME" else "PAUSE"
+            btnRestartMission.isEnabled = mission.state != GameState.SCANNING
 
             // Display Performance Telemetry
             tvPerformance.text = String.format(

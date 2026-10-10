@@ -47,6 +47,10 @@ import com.embedded.argame.navigation.AgentState
 import com.embedded.argame.navigation.PathResult
 import com.embedded.argame.navigation.PathStatus
 import com.embedded.argame.rendering.AgentRenderer
+import com.embedded.argame.rendering.ObjectiveRenderer
+import com.embedded.argame.ai.VisibilityState
+import com.embedded.argame.game.MissionManager
+import com.embedded.argame.game.MissionSnapshot
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.Locale
@@ -155,6 +159,9 @@ class ArSessionManager(private val activity: Activity) {
 
     // Milestone 10 Reactive Creature AI Subsystem
     val creatureAiController = CreatureAIController()
+
+    // Milestone 12 Playable Mission Manager (The Relic Hunt)
+    val missionManager = MissionManager()
 
     // Milestone 11 Latest 16-bit metric depth snapshot buffer for Depth-Aware Visibility
     private val latestDepthLock = Any()
@@ -366,6 +373,7 @@ class ArSessionManager(private val activity: Activity) {
             extractDiagnostics(frame, currentSession)
             updateAgentSimulation(frame)
             updateCreatureAi(frame)
+            updateMission(frame)
             frame
         } catch (e: CameraNotAvailableException) {
             Log.w(TAG, "Camera not available during frame update")
@@ -439,6 +447,35 @@ class ArSessionManager(private val activity: Activity) {
                 depthPixelStride = dPix,
                 intrinsics = dIntrinsics,
                 currentTimeMs = System.currentTimeMillis()
+            )
+        }
+    }
+
+    /**
+     * Executes playable Mission Manager simulation and objective checks (Milestone 12).
+     */
+    private fun updateMission(frame: Frame) {
+        val pose = agentController.getPoseSnapshot(occupancyGrid.gridVersion)
+        val aiSnapshot = creatureAiController.getSnapshot()
+        val isTracking = frame.camera.trackingState == TrackingState.TRACKING && floorReference.isTracking
+
+        val pfx = if (floorReference.isTracking) floorReference.matrixCamToFloor[12] else null
+        val pfz = if (floorReference.isTracking) floorReference.matrixCamToFloor[14] else null
+        val cfx = if (pose.isSpawned) pose.floorX else null
+        val cfz = if (pose.isSpawned) pose.floorZ else null
+        val isOccluded = aiSnapshot.visibilityState == VisibilityState.OCCLUDED
+
+        occupancyGrid.withLock {
+            missionManager.update(
+                currentTimeMs = System.currentTimeMillis(),
+                isTracking = isTracking,
+                playerFloorX = pfx,
+                playerFloorZ = pfz,
+                creatureFloorX = cfx,
+                creatureFloorZ = cfz,
+                creatureAiState = aiSnapshot.state,
+                isCreatureOccluded = isOccluded,
+                occupancyGrid = occupancyGrid
             )
         }
     }
@@ -673,6 +710,70 @@ class ArSessionManager(private val activity: Activity) {
      * Obtains the latest snapshot of the Creature AI subsystem.
      */
     fun getCreatureAiSnapshot(): CreatureAISnapshot = creatureAiController.getSnapshot()
+
+    // --- Milestone 12 Playable Mission Controls ---
+
+    /**
+     * Synchronizes current mission objectives with ObjectiveRenderer for OpenGL ES 3.0 rendering.
+     */
+    fun syncObjectives(renderer: ObjectiveRenderer) {
+        val snapshot = missionManager.getSnapshot()
+        renderer.updateObjectives(snapshot.objectives)
+    }
+
+    /**
+     * Generates a new Relic Hunt mission with 3 relics and 1 extraction point.
+     */
+    fun generateMission(): Boolean {
+        val pfx = if (floorReference.isTracking) floorReference.matrixCamToFloor[12] else 0f
+        val pfz = if (floorReference.isTracking) floorReference.matrixCamToFloor[14] else 0f
+        val success = occupancyGrid.withLock {
+            missionManager.generateMission(occupancyGrid, pfx, pfz)
+        }
+        val snapshot = missionManager.getSnapshot()
+        Log.i(TAG, "generateMission: pfx=$pfx, pfz=$pfz, success=$success, status='${snapshot.statusMessage}', objs=${snapshot.objectives.size}")
+        return success
+    }
+
+    /**
+     * Starts the generated mission and ensures creature AI and navigation are active.
+     */
+    fun startMission(): Boolean {
+        val started = missionManager.startMission()
+        if (started) {
+            if (!creatureAiController.isEnabled) {
+                creatureAiController.toggleEnabled()
+            }
+            val pose = agentController.getPoseSnapshot(occupancyGrid.gridVersion)
+            if (!pose.isSpawned) {
+                val sCol = if (hasNavStart) navStartCol else occupancyGrid.numCellsX / 2
+                val sRow = if (hasNavStart) navStartRow else occupancyGrid.numCellsZ / 2
+                agentController.spawnAt(sCol, sRow, occupancyGrid, floorReference)
+            }
+        }
+        return started
+    }
+
+    /**
+     * Toggles pause/resume state for the active mission.
+     */
+    fun toggleMissionPause(): Boolean = missionManager.togglePause()
+
+    /**
+     * Restarts the mission and resets creature AI.
+     */
+    fun restartMission(): Boolean {
+        val restarted = missionManager.restartMission()
+        if (restarted) {
+            resetCreatureAi()
+        }
+        return restarted
+    }
+
+    /**
+     * Obtains the latest snapshot of the mission state.
+     */
+    fun getMissionSnapshot(): MissionSnapshot = missionManager.getSnapshot()
 
     /**
      * Asynchronously replans path from agent's CURRENT cell to goal cell.

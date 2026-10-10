@@ -39,11 +39,12 @@ The MVP is the smallest complete end-to-end slice demonstrating the core feedbac
   - *Status:* COMPLETED & VERIFIED on Samsung Galaxy Tab S8+ (`SM-X800`) at 59.8–60.3 FPS rendering, 9.1–9.3 Hz depth perception, 40/40 unit tests passing, physical room verified across Tests A through J.
 - **Milestone 11:** Depth-Aware Visibility, Occlusion & Cover-Aware Search (Geometric pinhole camera projection, 5×5 median 16-bit metric depth sampling, adaptive noise margins, tri-state VISIBLE/OCCLUDED/UNKNOWN classification with 10 diagnostic reasons, temporal confirmation hysteresis, evidence fusion with 2.5D grid line-of-sight, frozen last-known player proxy tracking, cover-aware candidate search along obstacle boundaries, candidate separation enforcement, 5s search budget, safe recovery to patrol, zero-allocation GL evaluation loops).
   - *Status:* COMPLETED & VERIFIED on Samsung Galaxy Tab S8+ (`SM-X800`) at 59.8–60.1 FPS rendering, 9.2–9.5 Hz depth perception, 65/65 unit tests passing, physical room verified across Tests A through L.
-- **Milestone 12:** Real-Time Depth Occlusion Shader (Real-world physical object occlusion over virtual creature geometry using ARCore 16-bit depth texture in OpenGL ES 3.0 fragment shaders).
-- **Milestone 13:** Procedural dungeon generation (Generating virtual walls, corridors, and portals bounded by physical room occupancy grid).
-- **Milestone 14:** Spatial audio & Advanced AI tactics (Spatial audio cues for creature state transitions, audio-guided perception).
-- **Milestone 15:** Performance profiling & Thermal management (Frame timing, heap churn, thermal and battery profiling).
-- **Milestone 16:** Final game integration (Objectives, win/lose conditions, polished UI).
+- **Milestone 12:** Playable Mission Loop, Relics & Extraction (The Relic Hunt complete mission loop, 6-state top-level game state machine, reachable BFS objective generation for 3 collectible relics and 1 extraction portal, camera-proxy collection radius, extraction gating, creature pursuit capture with continuous duration and threat decay hysteresis, OpenGL ES 3.0 3D faceted diamond and extraction portal disc rendering, HUD telemetry & controls, clean restarts and pause handling, zero per-frame heap churn).
+  - *Status:* COMPLETED & VERIFIED on Samsung Galaxy Tab S8+ (`SM-X800`) at 59.7–60.4 FPS rendering, 9.3–9.5 Hz depth perception, 95/95 unit tests passing, physical room verified across Tests A through N.
+- **Milestone 13:** Real-Time Depth Occlusion Shader (Real-world physical object occlusion over virtual creature geometry and mission objectives using ARCore 16-bit depth texture in OpenGL ES 3.0 fragment shaders).
+- **Milestone 14:** Procedural dungeon generation (Generating virtual walls, corridors, and portals bounded by physical room occupancy grid).
+- **Milestone 15:** Spatial audio & Advanced AI tactics (Spatial audio cues for creature state transitions, audio-guided perception).
+- **Milestone 16:** Final game polish, performance profiling & thermal management.
 
 ## 3. Deliberately Deferred ("Do Not Build Yet")
 - Game engines (Unity, Unreal)
