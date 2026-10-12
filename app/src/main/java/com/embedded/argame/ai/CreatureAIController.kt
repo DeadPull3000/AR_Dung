@@ -35,6 +35,11 @@ class CreatureAIController(
 ) {
     private val lock = Any()
 
+    // Milestone 13 Subsystems
+    val suspicionModel: SuspicionModel = SuspicionModel(config.suspicionConfig)
+    val noiseEventManager: NoiseEventManager = NoiseEventManager()
+    val difficultyController: AdaptiveDifficultyController = AdaptiveDifficultyController(config.difficultyConfig)
+
     // Master enable toggle
     var isEnabled: Boolean = true
         private set
@@ -100,6 +105,16 @@ class CreatureAIController(
     // Blocked recovery
     private var lastBlockedTimeMs: Long = 0L
 
+    // Investigation state (Milestone 13)
+    var activeNoiseTarget: NoiseEvent? = null
+        private set
+    private var isPausingAtInvestigationPoint: Boolean = false
+    private var investigationPauseStartTimeMs: Long = 0L
+    private var lastInvestigationTargetSwitchTimeMs: Long = 0L
+    private var lastInvestigatedNoiseType: NoiseEventType? = null
+    private var noiseFeedbackMessage: String = ""
+    private var lastUpdateTimeMs: Long = 0L
+
     // Decision rate-limiting
     private var lastDecisionTimeMs: Long = 0L
     private var lastStatusMessage: String = "Initializing creature AI"
@@ -161,6 +176,16 @@ class CreatureAIController(
             searchCandidates.clear()
             currentSearchCandidateIndex = 0
             isWaitingAtSearchCandidate = false
+            activeNoiseTarget = null
+            isPausingAtInvestigationPoint = false
+            investigationPauseStartTimeMs = 0L
+            lastInvestigationTargetSwitchTimeMs = 0L
+            lastInvestigatedNoiseType = null
+            noiseFeedbackMessage = ""
+            lastUpdateTimeMs = 0L
+            suspicionModel.reset()
+            noiseEventManager.clear()
+            difficultyController.reset()
             onStopAgentRequested?.invoke()
             lastStatusMessage = "Creature AI reset"
         }
@@ -326,6 +351,33 @@ class CreatureAIController(
                 state = CreatureAIState.INITIALIZING
             }
 
+            // Milestone 13: Continuous time progression for suspicion, noise events, and difficulty
+            val dtMs = if (lastUpdateTimeMs > 0L && currentTimeMs > lastUpdateTimeMs) {
+                (currentTimeMs - lastUpdateTimeMs).coerceAtMost(500L)
+            } else 0L
+            lastUpdateTimeMs = currentTimeMs
+
+            val adaptiveParams = difficultyController.getActiveParameters()
+
+            // Suspicion decay & visual tracking update
+            suspicionModel.update(
+                currentTimeMs = currentTimeMs,
+                dtMs = dtMs,
+                isVisualConfirmed = perceptionSnapshot.isPlayerDetected,
+                isTrackingValid = perceptionSnapshot.isTrackingValid,
+                decayMultiplier = adaptiveParams.suspicionDecayMultiplier
+            )
+
+            // Adaptive difficulty evaluation (cooldown & hysteresis guarded)
+            difficultyController.evaluate(
+                currentTimeMs = currentTimeMs,
+                missionElapsedSec = 0f,
+                isPausedOrTerminal = (state == CreatureAIState.PAUSED)
+            )
+
+            // Prune expired noise events
+            noiseEventManager.pruneExpired(currentTimeMs)
+
             // 3. Rate-Limit AI Decisions
             if (currentTimeMs - lastDecisionTimeMs < config.aiDecisionIntervalMs) {
                 return
@@ -345,6 +397,10 @@ class CreatureAIController(
 
                 CreatureAIState.PATROLLING -> {
                     handlePatrolling(perceptionSnapshot, occupancyGrid, agentPose, currentTimeMs)
+                }
+
+                CreatureAIState.INVESTIGATING -> {
+                    handleInvestigating(perceptionSnapshot, occupancyGrid, agentPose, currentTimeMs)
                 }
 
                 CreatureAIState.CHASING -> {
@@ -373,11 +429,13 @@ class CreatureAIController(
     /**
      * Ingests the result of an asynchronous A* path search dispatched for this AI controller.
      */
+    @Suppress("UNUSED_PARAMETER")
     fun onPathResult(
         result: PathResult,
         requestId: Long,
         occupancyGrid: OccupancyGrid?,
-        floorReference: FloorReference?
+        floorReference: FloorReference?,
+        currentTimeMs: Long = System.currentTimeMillis()
     ) {
         synchronized(lock) {
             // Drop stale asynchronous results
@@ -389,13 +447,14 @@ class CreatureAIController(
                 lastStatusMessage = "Path found for $targetType (#$requestId)"
             } else {
                 lastStatusMessage = "Path failed for $targetType: ${result.status.name}"
-                handlePathFailure(result.status)
+                handlePathFailure(result.status, currentTimeMs)
             }
         }
     }
 
     // --- Private State Machine Handlers ---
 
+    @Suppress("UNUSED_PARAMETER")
     private fun handleInitializing(
         occupancyGrid: OccupancyGrid,
         agentPose: AgentPose,
@@ -421,10 +480,21 @@ class CreatureAIController(
         agentPose: AgentPose,
         currentTimeMs: Long
     ) {
-        // Condition: Player Detected -> Transition to CHASING immediately!
+        // Condition 1: Player Detected -> Transition to CHASING immediately!
         if (perception.isPlayerDetected) {
             transitionToChasing(perception, occupancyGrid, agentPose, currentTimeMs)
             return
+        }
+
+        // Condition 2: Noise investigation check (Milestone 13)
+        val noiseTarget = selectNoiseTarget(agentPose, occupancyGrid, currentTimeMs)
+        if (noiseTarget != null) {
+            val suspicion = suspicionModel.getSnapshot(currentTimeMs)
+            // Trigger investigation if suspicion is above threshold or noise event is salient
+            if (suspicion.level >= config.suspicionConfig.moderateThreshold || noiseTarget.initialIntensity >= 0.35f) {
+                transitionToInvestigating(noiseTarget, occupancyGrid, agentPose, currentTimeMs)
+                return
+            }
         }
 
         // Check if agent reached active patrol target
@@ -437,14 +507,97 @@ class CreatureAIController(
                 patrolPauseStartTimeMs = currentTimeMs
                 lastStatusMessage = "Patrol target reached; pausing"
             } else {
-                val pauseElapsedSec = (currentTimeMs - patrolPauseStartTimeMs) / 1000f
-                if (pauseElapsedSec >= config.patrolPauseDurationSec) {
+                val adaptiveParams = difficultyController.getActiveParameters()
+                val adjustedPauseSec: Float = config.patrolPauseDurationSec * adaptiveParams.patrolPauseMultiplier
+                val pauseElapsedSec: Float = (currentTimeMs - patrolPauseStartTimeMs) / 1000f
+                if (pauseElapsedSec >= adjustedPauseSec) {
                     isPausingAtPatrolPoint = false
                     requestNewPatrolTarget(occupancyGrid, agentPose)
                 }
             }
         } else if (targetType != TargetType.PATROL || agentPose.state == AgentState.IDLE) {
             requestNewPatrolTarget(occupancyGrid, agentPose)
+        }
+    }
+
+    private fun handleInvestigating(
+        perception: PlayerPerceptionSnapshot,
+        occupancyGrid: OccupancyGrid,
+        agentPose: AgentPose,
+        currentTimeMs: Long
+    ) {
+        // Priority 1: Direct Visual Detection -> Transition to CHASING immediately!
+        if (perception.isPlayerDetected) {
+            transitionToChasing(perception, occupancyGrid, agentPose, currentTimeMs)
+            return
+        }
+
+        val currentTarget = activeNoiseTarget
+        if (currentTarget == null) {
+            // No active noise target: check for another target or return to patrol
+            val nextTarget = selectNoiseTarget(agentPose, occupancyGrid, currentTimeMs)
+            if (nextTarget != null) {
+                transitionToInvestigating(nextTarget, occupancyGrid, agentPose, currentTimeMs)
+            } else {
+                state = CreatureAIState.PATROLLING
+                lastStatusMessage = "Investigation complete: returning to patrol"
+                requestNewPatrolTarget(occupancyGrid, agentPose)
+            }
+            return
+        }
+
+        // Priority 2: Preemption by stronger / newer noise event (rate-limited)
+        if (currentTimeMs - lastInvestigationTargetSwitchTimeMs >= config.minInvestigateTargetSwitchIntervalMs) {
+            val challenger = selectNoiseTarget(agentPose, occupancyGrid, currentTimeMs)
+            if (challenger != null && challenger.id != currentTarget.id) {
+                val challengerScore = challenger.getPerceivedIntensity(agentPose.floorX, agentPose.floorZ, currentTimeMs)
+                val currentScore = currentTarget.getPerceivedIntensity(agentPose.floorX, agentPose.floorZ, currentTimeMs)
+                if (challengerScore > currentScore * 1.3f) {
+                    lastInvestigationTargetSwitchTimeMs = currentTimeMs
+                    transitionToInvestigating(challenger, occupancyGrid, agentPose, currentTimeMs)
+                    return
+                }
+            }
+        }
+
+        // Priority 3: Arrival and on-site investigation
+        val arrivedAtTarget = (targetType == TargetType.INVESTIGATE_NOISE) &&
+                (agentPose.state == AgentState.ARRIVED || isNearTarget(agentPose, targetFloorX, targetFloorZ, config.investigationArrivalRadiusMeters))
+
+        if (arrivedAtTarget) {
+            if (!isPausingAtInvestigationPoint) {
+                isPausingAtInvestigationPoint = true
+                investigationPauseStartTimeMs = currentTimeMs
+                lastStatusMessage = "Investigating disturbance at (${targetCol}, ${targetRow})"
+            } else {
+                val adaptiveParams = difficultyController.getActiveParameters()
+                val adjustedPauseSec: Float = 1.5f / adaptiveParams.investigationUrgencyMultiplier
+                val elapsedSec: Float = (currentTimeMs - investigationPauseStartTimeMs) / 1000f
+
+                if (elapsedSec >= adjustedPauseSec) {
+                    isPausingAtInvestigationPoint = false
+                    noiseEventManager.markInvestigated(currentTarget.id)
+                    suspicionModel.addEvidence(
+                        type = EvidenceType.INVESTIGATION_CLEARED,
+                        strength = 1.0f,
+                        floorX = agentPose.floorX,
+                        floorZ = agentPose.floorZ,
+                        currentTimeMs = currentTimeMs
+                    )
+                    activeNoiseTarget = null
+
+                    val nextTarget = selectNoiseTarget(agentPose, occupancyGrid, currentTimeMs)
+                    if (nextTarget != null) {
+                        transitionToInvestigating(nextTarget, occupancyGrid, agentPose, currentTimeMs)
+                    } else {
+                        state = CreatureAIState.PATROLLING
+                        lastStatusMessage = "Investigation cleared: resuming patrol"
+                        requestNewPatrolTarget(occupancyGrid, agentPose)
+                    }
+                }
+            }
+        } else if (targetType != TargetType.INVESTIGATE_NOISE || agentPose.state == AgentState.IDLE) {
+            requestInvestigationPath(currentTarget, occupancyGrid, agentPose)
         }
     }
 
@@ -494,9 +647,11 @@ class CreatureAIController(
             return
         }
 
-        // Search duration timeout check
-        val searchDurationSec = (currentTimeMs - searchStartTimeMs) / 1000f
-        if (searchDurationSec >= config.maxSearchDurationSec) {
+        // Search duration timeout check (scaled by adaptive difficulty tier)
+        val adaptiveParams = difficultyController.getActiveParameters()
+        val adjustedMaxSearchDurationSec: Float = config.maxSearchDurationSec * adaptiveParams.searchDurationMultiplier
+        val searchDurationSec: Float = (currentTimeMs - searchStartTimeMs) / 1000f
+        if (searchDurationSec >= adjustedMaxSearchDurationSec) {
             transitionToReturning(occupancyGrid, agentPose, currentTimeMs)
             return
         }
@@ -509,7 +664,7 @@ class CreatureAIController(
             if (!isWaitingAtSearchCandidate) {
                 isWaitingAtSearchCandidate = true
                 searchCandidateWaitStartTimeMs = currentTimeMs
-                lastStatusMessage = "Searching area (${(config.maxSearchDurationSec - searchDurationSec).toInt()}s left)"
+                lastStatusMessage = "Searching area (${(adjustedMaxSearchDurationSec - searchDurationSec).toInt()}s left)"
             } else {
                 val waitElapsed = (currentTimeMs - searchCandidateWaitStartTimeMs) / 1000f
                 if (waitElapsed >= config.searchCandidateWaitSec) {
@@ -562,7 +717,10 @@ class CreatureAIController(
         }
     }
 
-    private fun handlePathFailure(status: PathStatus) {
+    private fun handlePathFailure(
+        status: PathStatus,
+        currentTimeMs: Long = System.currentTimeMillis()
+    ) {
         when (state) {
             CreatureAIState.CHASING -> {
                 // If direct path to player failed (e.g. player in corner), remain in chase and wait for movement
@@ -572,9 +730,18 @@ class CreatureAIController(
                 // Skip blocked candidate
                 currentSearchCandidateIndex++
             }
+            CreatureAIState.INVESTIGATING -> {
+                // Mark blocked noise target as investigated so we don't repeat-loop on it
+                activeNoiseTarget?.let { noiseEventManager.markInvestigated(it.id) }
+                activeNoiseTarget = null
+                state = CreatureAIState.BLOCKED
+                lastBlockedTimeMs = currentTimeMs
+                lastStatusMessage = "Investigation path blocked: entering recovery"
+                onStopAgentRequested?.invoke()
+            }
             CreatureAIState.PATROLLING, CreatureAIState.RETURNING -> {
                 state = CreatureAIState.BLOCKED
-                lastBlockedTimeMs = System.currentTimeMillis()
+                lastBlockedTimeMs = currentTimeMs
                 lastStatusMessage = "Navigation blocked: entering recovery"
                 onStopAgentRequested?.invoke()
             }
@@ -597,8 +764,20 @@ class CreatureAIController(
         lastKnownPlayerFloorX = perception.playerFloorX
         lastKnownPlayerFloorZ = perception.playerFloorZ
         isPausingAtPatrolPoint = false
+        isPausingAtInvestigationPoint = false
         isWaitingAtSearchCandidate = false
         searchCandidates.clear()
+        activeNoiseTarget = null
+
+        // Milestone 13: Confirmed player observation adds maximum suspicion evidence
+        suspicionModel.addEvidence(
+            type = EvidenceType.VISUAL_CONFIRMED,
+            strength = 1.0f,
+            floorX = perception.playerFloorX,
+            floorZ = perception.playerFloorZ,
+            currentTimeMs = currentTimeMs
+        )
+
         lastStatusMessage = "PLAYER DETECTED! Initiating pursuit"
         requestChaseGoal(perception, occupancyGrid, agentPose, currentTimeMs)
     }
@@ -611,6 +790,21 @@ class CreatureAIController(
         state = CreatureAIState.SEARCHING
         searchStartTimeMs = currentTimeMs
         isWaitingAtSearchCandidate = false
+        isPausingAtInvestigationPoint = false
+        activeNoiseTarget = null
+
+        // Milestone 13: Player escaped pursuit -> signal adaptive difficulty
+        difficultyController.recordPlayerEscape()
+
+        // Suspicion retains last-known observation memory
+        suspicionModel.addEvidence(
+            type = EvidenceType.VISUAL_LAST_KNOWN,
+            strength = 0.8f,
+            floorX = lastKnownPlayerFloorX,
+            floorZ = lastKnownPlayerFloorZ,
+            currentTimeMs = currentTimeMs
+        )
+
         lastStatusMessage = "LOST SIGHT: Searching cover around last known position"
 
         // Freeze last known player position (Milestone 11, Section 5.1)
@@ -812,6 +1006,7 @@ class CreatureAIController(
         onNavigationGoalRequested?.invoke(agentPose.cellCol, agentPose.cellRow, c, r, reqId, type)
     }
 
+    @Suppress("UNUSED_PARAMETER")
     private fun transitionToReturning(
         occupancyGrid: OccupancyGrid,
         agentPose: AgentPose,
@@ -856,6 +1051,59 @@ class CreatureAIController(
         activeRequestId++
         val reqId = activeRequestId
         onNavigationGoalRequested?.invoke(agentPose.cellCol, agentPose.cellRow, destCol, destRow, reqId, TargetType.CHASE_PLAYER)
+    }
+
+    private fun requestInvestigationPath(
+        target: NoiseEvent,
+        occupancyGrid: OccupancyGrid,
+        agentPose: AgentPose
+    ) {
+        val approachCell = findBestApproachCell(
+            targetCol = target.cellCol,
+            targetRow = target.cellRow,
+            creatureCol = agentPose.cellCol,
+            creatureRow = agentPose.cellRow,
+            occupancyGrid = occupancyGrid
+        )
+
+        val destCol = approachCell.first
+        val destRow = approachCell.second
+        val (fx, fz) = occupancyGrid.cellToFloorCoord(destCol, destRow)
+
+        targetType = TargetType.INVESTIGATE_NOISE
+        targetCol = destCol
+        targetRow = destRow
+        targetFloorX = fx
+        targetFloorZ = fz
+
+        activeRequestId++
+        val reqId = activeRequestId
+        onNavigationGoalRequested?.invoke(
+            agentPose.cellCol,
+            agentPose.cellRow,
+            destCol,
+            destRow,
+            reqId,
+            TargetType.INVESTIGATE_NOISE
+        )
+    }
+
+    private fun transitionToInvestigating(
+        target: NoiseEvent,
+        occupancyGrid: OccupancyGrid,
+        agentPose: AgentPose,
+        currentTimeMs: Long
+    ) {
+        state = CreatureAIState.INVESTIGATING
+        activeNoiseTarget = target
+        lastInvestigatedNoiseType = target.type
+        isPausingAtPatrolPoint = false
+        isPausingAtInvestigationPoint = false
+        isWaitingAtSearchCandidate = false
+        searchCandidates.clear()
+        lastInvestigationTargetSwitchTimeMs = currentTimeMs
+        lastStatusMessage = "INVESTIGATING: Heard ${target.type.name} at (${target.cellCol}, ${target.cellRow})"
+        requestInvestigationPath(target, occupancyGrid, agentPose)
     }
 
     private fun requestNewPatrolTarget(
@@ -1014,9 +1262,14 @@ class CreatureAIController(
         return bestCell ?: Pair(targetCol, targetRow)
     }
 
-    private fun isNearTarget(agentPose: AgentPose, targetX: Float, targetZ: Float): Boolean {
+    private fun isNearTarget(
+        agentPose: AgentPose,
+        targetX: Float,
+        targetZ: Float,
+        thresholdMeters: Float = config.approachPlayerDistanceMeters
+    ): Boolean {
         val d = distance(agentPose.floorX, agentPose.floorZ, targetX, targetZ)
-        return d <= config.approachPlayerDistanceMeters
+        return d <= thresholdMeters
     }
 
     private fun distance(x1: Float, z1: Float, x2: Float, z2: Float): Float {
@@ -1026,13 +1279,96 @@ class CreatureAIController(
     }
 
     /**
+     * Selects the highest-priority reachable noise event for investigation (Milestone 13).
+     */
+    fun selectNoiseTarget(
+        agentPose: AgentPose,
+        occupancyGrid: OccupancyGrid,
+        currentTimeMs: Long
+    ): NoiseEvent? {
+        val adaptiveParams = difficultyController.getActiveParameters()
+        val minThreshold = (0.15f / adaptiveParams.noiseSensitivityMultiplier).coerceIn(0.05f, 0.5f)
+
+        return noiseEventManager.findBestInvestigationTarget(
+            creatureFloorX = agentPose.floorX,
+            creatureFloorZ = agentPose.floorZ,
+            currentTimeMs = currentTimeMs,
+            minPerceivedThreshold = minThreshold,
+            isOccluded = { fx, fz ->
+                val cell = occupancyGrid.floorToCell(fx, fz)
+                if (cell != null) {
+                    val (c, r) = cell
+                    if (c in 0 until occupancyGrid.numCellsX && r in 0 until occupancyGrid.numCellsZ) {
+                        occupancyGrid.getNavigationCellState(c, r) == NavigationCellState.PHYSICAL_OBSTACLE
+                    } else false
+                } else false
+            }
+        )
+    }
+
+    /**
+     * Emits a virtual gameplay noise event to influence creature suspicion and investigation (Milestone 13).
+     */
+    fun emitNoiseEvent(
+        type: NoiseEventType,
+        floorX: Float,
+        floorZ: Float,
+        cellCol: Int,
+        cellRow: Int,
+        currentTimeMs: Long = System.currentTimeMillis()
+    ): NoiseEvent? {
+        synchronized(lock) {
+            val event = noiseEventManager.emitEvent(
+                type = type,
+                floorX = floorX,
+                floorZ = floorZ,
+                cellCol = cellCol,
+                cellRow = cellRow,
+                currentTimeMs = currentTimeMs
+            ) ?: return null
+
+            val evidenceType = when (type) {
+                NoiseEventType.RELIC_COLLECTED -> EvidenceType.NOISE_RELIC
+                NoiseEventType.DISTRACTION -> EvidenceType.NOISE_DISTRACTION
+                NoiseEventType.PLAYER_MOVEMENT -> EvidenceType.NOISE_MOVEMENT
+                NoiseEventType.OBJECTIVE_INTERACTION -> EvidenceType.NOISE_RELIC
+            }
+
+            suspicionModel.addEvidence(
+                type = evidenceType,
+                strength = event.initialIntensity,
+                floorX = floorX,
+                floorZ = floorZ,
+                currentTimeMs = currentTimeMs
+            )
+
+            noiseFeedbackMessage = "NOISE DETECTED: ${type.name}"
+            return event
+        }
+    }
+
+    /**
+     * Updates adaptive difficulty progression signals from mission state (Milestone 13).
+     */
+    fun updateDifficultyProgression(
+        relicsCollected: Int,
+        threatPercent: Float
+    ) {
+        synchronized(lock) {
+            difficultyController.updateProgression(relicsCollected, threatPercent)
+        }
+    }
+
+    /**
      * Produces an immutable, thread-safe snapshot of the creature AI state for UI diagnostics and GL rendering.
      */
     fun getSnapshot(): CreatureAISnapshot {
         synchronized(lock) {
             val now = System.currentTimeMillis()
+            val adaptiveParams = difficultyController.getActiveParameters()
+            val adjustedMaxSearchSec = config.maxSearchDurationSec * adaptiveParams.searchDurationMultiplier
             val searchTimeRem = if (state == CreatureAIState.SEARCHING) {
-                (config.maxSearchDurationSec - (now - searchStartTimeMs) / 1000f).coerceAtLeast(0f)
+                (adjustedMaxSearchSec - (now - searchStartTimeMs) / 1000f).coerceAtLeast(0f)
             } else 0f
 
             val lastKnownAgeMs = if (lastSeenPlayerTimeMs > 0L) {
@@ -1040,6 +1376,9 @@ class CreatureAIController(
             } else 0L
 
             val depthVis = lastPerception.depthVisibility
+            val suspicionSnap = suspicionModel.getSnapshot(now)
+            val difficultySnap = difficultyController.evaluate(now, 0f, state == CreatureAIState.PAUSED)
+            val activeNoiseCount = noiseEventManager.getActiveEvents(now).size
 
             return CreatureAISnapshot(
                 state = state,
@@ -1069,6 +1408,11 @@ class CreatureAIController(
                 currentSearchCandidateIndex = currentSearchCandidateIndex,
                 totalSearchCandidates = searchCandidates.size,
                 lastKnownLocationAgeMs = lastKnownAgeMs,
+                suspicionSnapshot = suspicionSnap,
+                difficultyLevel = difficultySnap.level,
+                activeNoiseEventCount = activeNoiseCount,
+                lastInvestigatedNoiseType = lastInvestigatedNoiseType,
+                noiseFeedbackMessage = noiseFeedbackMessage,
                 timestampMs = now
             )
         }

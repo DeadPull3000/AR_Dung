@@ -77,5 +77,19 @@ data class CreatureAIConfig(
     val minCandidateSeparationMeters: Float = 0.35f,
 
     /** Preference bonus weight for candidate cells located along physical obstacle cover boundaries. */
-    val coverBoundaryWeight: Float = 1.5f
+    val coverBoundaryWeight: Float = 1.5f,
+
+    // --- Milestone 13: Stealth, Noise Investigation & Adaptive Difficulty Parameters ---
+
+    /** Distance within which creature considers itself arrived at noise investigation target (meters). */
+    val investigationArrivalRadiusMeters: Float = 0.50f,
+
+    /** Minimum interval between allowed target switching during active noise investigation (milliseconds). */
+    val minInvestigateTargetSwitchIntervalMs: Long = 1500L,
+
+    /** Embedded suspicion configuration parameters. */
+    val suspicionConfig: SuspicionConfig = SuspicionConfig(),
+
+    /** Embedded adaptive difficulty configuration parameters. */
+    val difficultyConfig: DifficultyConfig = DifficultyConfig()
 )

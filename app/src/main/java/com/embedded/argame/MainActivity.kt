@@ -784,6 +784,7 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
             val aiStateStr = when (aiSnapshot.state) {
                 CreatureAIState.INITIALIZING -> "INITIALIZING (Scanning room)"
                 CreatureAIState.PATROLLING -> "PATROLLING (Exploring floor)"
+                CreatureAIState.INVESTIGATING -> "INVESTIGATING NOISE (${aiSnapshot.lastInvestigatedNoiseType?.name ?: "DISTURBANCE"})"
                 CreatureAIState.CHASING -> "CHASING PLAYER! (Pursuing proxy)"
                 CreatureAIState.SEARCHING -> String.format(Locale.US, "SEARCHING (Investigating area: %.1fs)", aiSnapshot.searchTimeRemainingSec)
                 CreatureAIState.RETURNING -> "RETURNING (Back to patrol)"
@@ -793,6 +794,7 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
             tvAiStatus.text = "Creature: $aiStateStr"
             when (aiSnapshot.state) {
                 CreatureAIState.CHASING -> tvAiStatus.setTextColor(getColor(android.R.color.holo_red_light))
+                CreatureAIState.INVESTIGATING -> tvAiStatus.setTextColor(getColor(android.R.color.holo_orange_light))
                 CreatureAIState.SEARCHING -> tvAiStatus.setTextColor(getColor(R.color.accent_yellow))
                 CreatureAIState.RETURNING -> tvAiStatus.setTextColor(getColor(R.color.accent_purple))
                 CreatureAIState.PATROLLING -> tvAiStatus.setTextColor(getColor(R.color.accent_cyan))
@@ -805,18 +807,19 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
             val lastKnownStr = if (aiSnapshot.lastKnownPlayerCol >= 0) {
                 String.format(Locale.US, "[c%d, r%d] (%.1fs ago)", aiSnapshot.lastKnownPlayerCol, aiSnapshot.lastKnownPlayerRow, lastKnownAgeSec)
             } else "[-, -]"
-            val candStr = if (aiSnapshot.totalSearchCandidates > 0) {
-                "${aiSnapshot.currentSearchCandidateIndex + 1}/${aiSnapshot.totalSearchCandidates}"
-            } else "0/0"
+            val suspTier = if (aiSnapshot.suspicionSnapshot.isHigh) "HIGH" else if (aiSnapshot.suspicionSnapshot.isModerate) "MOD" else "LOW"
+            val noiseFeedback = if (aiSnapshot.noiseFeedbackMessage.isNotEmpty()) " | ${aiSnapshot.noiseFeedbackMessage}" else ""
 
             tvAiDetails.text = String.format(
                 Locale.US,
-                "Target: %s %s (Cand %s) | LastKnown: %s | Req #%d",
+                "Target: %s %s | Susp: %.0f%% [%s] | LastKnown: %s | Diff: %s%s",
                 aiSnapshot.targetType.name,
                 targetCellStr,
-                candStr,
+                aiSnapshot.suspicionSnapshot.level,
+                suspTier,
                 lastKnownStr,
-                aiSnapshot.activeRequestId
+                aiSnapshot.difficultyLevel.name,
+                noiseFeedback
             )
 
             val playerDistStr = if (aiSnapshot.playerDistanceMeters < 100f) String.format(Locale.US, "%.2fm", aiSnapshot.playerDistanceMeters) else "---m"

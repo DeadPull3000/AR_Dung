@@ -275,7 +275,8 @@ class AgentRenderer {
     private fun updateBodyColors(state: AgentState, aiState: CreatureAIState?) {
         val (r, g, b, a) = when {
             aiState == CreatureAIState.CHASING -> floatArrayOf(1.0f, 0.15f, 0.15f, 0.90f)       // Flame Red (Aggressive Pursuit!)
-            aiState == CreatureAIState.SEARCHING -> floatArrayOf(1.0f, 0.70f, 0.0f, 0.85f)     // Amber Gold (Investigating!)
+            aiState == CreatureAIState.SEARCHING -> floatArrayOf(1.0f, 0.70f, 0.0f, 0.85f)     // Amber Gold (Searching!)
+            aiState == CreatureAIState.INVESTIGATING -> floatArrayOf(1.0f, 0.45f, 0.0f, 0.90f) // Neon Orange (Investigating Noise!)
             aiState == CreatureAIState.RETURNING -> floatArrayOf(0.70f, 0.20f, 0.95f, 0.85f)     // Royal Purple (Returning)
             aiState == CreatureAIState.PATROLLING -> floatArrayOf(0.0f, 0.90f, 1.0f, 0.85f)     // Electric Cyan (Cruising Patrol)
             state == AgentState.NAVIGATING -> floatArrayOf(0.0f, 0.90f, 1.0f, 0.85f)           // Electric Cyan

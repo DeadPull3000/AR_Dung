@@ -36,6 +36,7 @@ import com.embedded.argame.ai.CreatureAIConfig
 import com.embedded.argame.ai.CreatureAIController
 import com.embedded.argame.ai.CreatureAISnapshot
 import com.embedded.argame.ai.CreatureAIState
+import com.embedded.argame.ai.NoiseEventType
 import com.embedded.argame.ai.TargetType
 import com.embedded.argame.rendering.OccupancyGridRenderer
 import com.embedded.argame.rendering.PathRenderer
@@ -211,6 +212,22 @@ class ArSessionManager(private val activity: Activity) {
 
         creatureAiController.onStopAgentRequested = {
             agentController.reset()
+        }
+
+        missionManager.onRelicCollected = { relicId, _, _ ->
+            val snapshot = missionManager.getSnapshot()
+            val relic = snapshot.objectives.find { it.id == relicId }
+            val rfx = relic?.floorX ?: 0f
+            val rfz = relic?.floorZ ?: 0f
+            val rcol = relic?.col ?: 0
+            val rrow = relic?.row ?: 0
+            creatureAiController.emitNoiseEvent(
+                type = NoiseEventType.RELIC_COLLECTED,
+                floorX = rfx,
+                floorZ = rfz,
+                cellCol = rcol,
+                cellRow = rrow
+            )
         }
     }
 
@@ -476,6 +493,11 @@ class ArSessionManager(private val activity: Activity) {
                 creatureAiState = aiSnapshot.state,
                 isCreatureOccluded = isOccluded,
                 occupancyGrid = occupancyGrid
+            )
+            val mSnap = missionManager.getSnapshot()
+            creatureAiController.updateDifficultyProgression(
+                relicsCollected = mSnap.relicsCollected,
+                threatPercent = mSnap.captureProgressPercent
             )
         }
     }

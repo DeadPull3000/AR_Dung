@@ -20,6 +20,9 @@ enum class CreatureAIState {
     /** Investigating last known player location and surrounding candidate cells after losing sight. */
     SEARCHING,
 
+    /** Investigating a gameplay virtual noise event or suspicious disturbance. */
+    INVESTIGATING,
+
     /** Navigating back toward valid patrol area after search timed out without rediscovering player. */
     RETURNING,
 
@@ -30,7 +33,7 @@ enum class CreatureAIState {
     PAUSED;
 
     val isAlertState: Boolean
-        get() = this == CHASING || this == SEARCHING
+        get() = this == CHASING || this == SEARCHING || this == INVESTIGATING
 }
 
 /**
@@ -42,6 +45,7 @@ enum class TargetType {
     CHASE_PLAYER,
     SEARCH_LAST_KNOWN,
     SEARCH_CANDIDATE,
+    INVESTIGATE_NOISE,
     RETURN_PATROL
 }
 
@@ -76,5 +80,10 @@ data class CreatureAISnapshot(
     val currentSearchCandidateIndex: Int = 0,
     val totalSearchCandidates: Int = 0,
     val lastKnownLocationAgeMs: Long = 0L,
+    val suspicionSnapshot: SuspicionSnapshot = SuspicionSnapshot(),
+    val difficultyLevel: DifficultyLevel = DifficultyLevel.STANDARD,
+    val activeNoiseEventCount: Int = 0,
+    val lastInvestigatedNoiseType: NoiseEventType? = null,
+    val noiseFeedbackMessage: String = "",
     val timestampMs: Long = 0L
 )
