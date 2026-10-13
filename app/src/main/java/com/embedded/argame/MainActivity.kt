@@ -808,6 +808,15 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
                 String.format(Locale.US, "[c%d, r%d] (%.1fs ago)", aiSnapshot.lastKnownPlayerCol, aiSnapshot.lastKnownPlayerRow, lastKnownAgeSec)
             } else "[-, -]"
             val suspTier = if (aiSnapshot.suspicionSnapshot.isHigh) "HIGH" else if (aiSnapshot.suspicionSnapshot.isModerate) "MOD" else "LOW"
+            val provenanceStr = when (aiSnapshot.suspicionSnapshot.provenance) {
+                com.embedded.argame.ai.EvidenceProvenance.CURRENT_VISUAL -> "VISUAL"
+                com.embedded.argame.ai.EvidenceProvenance.STALE_VISUAL -> "LAST_SEEN"
+                com.embedded.argame.ai.EvidenceProvenance.SOUND -> "SOUND"
+                com.embedded.argame.ai.EvidenceProvenance.NONE -> "NONE"
+            }
+            val suspLabel = if (aiSnapshot.suspicionSnapshot.provenance != com.embedded.argame.ai.EvidenceProvenance.NONE) {
+                "$suspTier ($provenanceStr)"
+            } else suspTier
             val noiseFeedback = if (aiSnapshot.noiseFeedbackMessage.isNotEmpty()) " | ${aiSnapshot.noiseFeedbackMessage}" else ""
 
             tvAiDetails.text = String.format(
@@ -816,7 +825,7 @@ class MainActivity : AppCompatActivity(), ArSessionManager.SessionListener {
                 aiSnapshot.targetType.name,
                 targetCellStr,
                 aiSnapshot.suspicionSnapshot.level,
-                suspTier,
+                suspLabel,
                 lastKnownStr,
                 aiSnapshot.difficultyLevel.name,
                 noiseFeedback

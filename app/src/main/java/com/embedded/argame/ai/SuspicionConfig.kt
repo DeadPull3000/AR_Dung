@@ -10,14 +10,14 @@ data class SuspicionConfig(
     /** Maximum normalized suspicion ceiling (100.0). */
     val maxSuspicion: Float = 100f,
 
-    /** Threshold below which creature continues normal patrol without investigating (0..30). */
-    val lowThreshold: Float = 30f,
+    /** Threshold below which creature continues normal patrol without investigating (0..25). */
+    val lowThreshold: Float = 25f,
 
-    /** Threshold at which creature investigates noise or suspicious location (30..70). */
+    /** Threshold at which creature investigates noise or suspicious location (25..60). */
     val moderateThreshold: Float = 45f,
 
-    /** Threshold at which creature is on high alert (70..100). */
-    val highThreshold: Float = 75f,
+    /** Threshold at which creature is on high acoustic/visual alert (60..100). */
+    val highThreshold: Float = 60f,
 
     /** Rate at which suspicion decays towards baseline when unprompted (points per second). */
     val decayRatePerSec: Float = 12f,

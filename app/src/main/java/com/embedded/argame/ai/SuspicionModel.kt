@@ -25,6 +25,17 @@ data class SuspicionEvidence(
 )
 
 /**
+ * Provenance category describing the origin of current creature suspicion.
+ * Explicitly separates sound alert from stale visual memory and confirmed visual presence.
+ */
+enum class EvidenceProvenance {
+    NONE,           // Baseline, no active evidence
+    SOUND,          // Derived purely from acoustic events (relic, distraction, movement)
+    STALE_VISUAL,   // Derived from previous visual sightings after sight is lost
+    CURRENT_VISUAL  // Derived from active, unoccluded visual confirmation of player proxy
+}
+
+/**
  * Immutable snapshot of the current suspicion state for telemetry and rendering.
  */
 data class SuspicionSnapshot(
@@ -32,8 +43,10 @@ data class SuspicionSnapshot(
     val isLow: Boolean = true,
     val isModerate: Boolean = false,
     val isHigh: Boolean = false,
+    val provenance: EvidenceProvenance = EvidenceProvenance.NONE,
     val activeEvidenceCount: Int = 0,
     val lastEvidenceType: EvidenceType? = null,
+    val isVisualConfirmed: Boolean = false,
     val timestampMs: Long = 0L
 )
 
@@ -52,6 +65,7 @@ class SuspicionModel(
     private var nextEvidenceId: Long = 1L
     private var cumulativeNoiseScore: Float = 0f
     private var lastUpdateTimeMs: Long = 0L
+    private var isCurrentlyVisualConfirmed: Boolean = false
 
     /**
      * Adds an evidence event that contributes to suspicion.
@@ -121,6 +135,7 @@ class SuspicionModel(
         synchronized(lock) {
             lastUpdateTimeMs = currentTimeMs
             pruneExpiredLocked(currentTimeMs)
+            isCurrentlyVisualConfirmed = isVisualConfirmed && isTrackingValid
 
             if (!isTrackingValid) {
                 // Tracking loss pauses suspicion accumulation and decays slowly
@@ -163,6 +178,7 @@ class SuspicionModel(
             cumulativeNoiseScore = 0f
             evidenceHistory.clear()
             lastUpdateTimeMs = 0L
+            isCurrentlyVisualConfirmed = false
         }
     }
 
@@ -172,13 +188,21 @@ class SuspicionModel(
     fun getSnapshot(currentTimeMs: Long = lastUpdateTimeMs): SuspicionSnapshot {
         synchronized(lock) {
             val level = currentSuspicion
+            val prov = when {
+                isCurrentlyVisualConfirmed -> EvidenceProvenance.CURRENT_VISUAL
+                evidenceHistory.any { it.type == EvidenceType.VISUAL_LAST_KNOWN || it.type == EvidenceType.VISUAL_CONFIRMED } -> EvidenceProvenance.STALE_VISUAL
+                evidenceHistory.any { it.type.isNoise } -> EvidenceProvenance.SOUND
+                else -> EvidenceProvenance.NONE
+            }
             return SuspicionSnapshot(
                 level = level,
                 isLow = level < config.lowThreshold,
                 isModerate = level >= config.lowThreshold && level < config.highThreshold,
                 isHigh = level >= config.highThreshold,
+                provenance = prov,
                 activeEvidenceCount = evidenceHistory.size,
                 lastEvidenceType = evidenceHistory.lastOrNull()?.type,
+                isVisualConfirmed = isCurrentlyVisualConfirmed,
                 timestampMs = currentTimeMs
             )
         }

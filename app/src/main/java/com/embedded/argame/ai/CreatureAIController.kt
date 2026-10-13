@@ -114,6 +114,7 @@ class CreatureAIController(
     private var lastInvestigatedNoiseType: NoiseEventType? = null
     private var noiseFeedbackMessage: String = ""
     private var lastUpdateTimeMs: Long = 0L
+    private var currentMissionElapsedSec: Float = 0f
 
     // Decision rate-limiting
     private var lastDecisionTimeMs: Long = 0L
@@ -183,6 +184,7 @@ class CreatureAIController(
             lastInvestigatedNoiseType = null
             noiseFeedbackMessage = ""
             lastUpdateTimeMs = 0L
+            currentMissionElapsedSec = 0f
             suspicionModel.reset()
             noiseEventManager.clear()
             difficultyController.reset()
@@ -371,7 +373,7 @@ class CreatureAIController(
             // Adaptive difficulty evaluation (cooldown & hysteresis guarded)
             difficultyController.evaluate(
                 currentTimeMs = currentTimeMs,
-                missionElapsedSec = 0f,
+                missionElapsedSec = currentMissionElapsedSec,
                 isPausedOrTerminal = (state == CreatureAIState.PAUSED)
             )
 
@@ -647,6 +649,13 @@ class CreatureAIController(
             return
         }
 
+        // Noise distraction check during search (Milestone 13/14)
+        val noiseTarget = selectNoiseTarget(agentPose, occupancyGrid, currentTimeMs)
+        if (noiseTarget != null && (noiseTarget.initialIntensity >= 0.35f || suspicionModel.getSnapshot(currentTimeMs).level >= config.suspicionConfig.moderateThreshold)) {
+            transitionToInvestigating(noiseTarget, occupancyGrid, agentPose, currentTimeMs)
+            return
+        }
+
         // Search duration timeout check (scaled by adaptive difficulty tier)
         val adaptiveParams = difficultyController.getActiveParameters()
         val adjustedMaxSearchDurationSec: Float = config.maxSearchDurationSec * adaptiveParams.searchDurationMultiplier
@@ -685,6 +694,16 @@ class CreatureAIController(
         if (perception.isPlayerDetected) {
             transitionToChasing(perception, occupancyGrid, agentPose, currentTimeMs)
             return
+        }
+
+        // Noise investigation check while returning
+        val noiseTarget = selectNoiseTarget(agentPose, occupancyGrid, currentTimeMs)
+        if (noiseTarget != null) {
+            val suspicion = suspicionModel.getSnapshot(currentTimeMs)
+            if (suspicion.level >= config.suspicionConfig.moderateThreshold || noiseTarget.initialIntensity >= 0.35f) {
+                transitionToInvestigating(noiseTarget, occupancyGrid, agentPose, currentTimeMs)
+                return
+            }
         }
 
         val arrivedAtReturn = (targetType == TargetType.RETURN_PATROL) &&
@@ -779,6 +798,7 @@ class CreatureAIController(
         )
 
         lastStatusMessage = "PLAYER DETECTED! Initiating pursuit"
+        onStopAgentRequested?.invoke()
         requestChaseGoal(perception, occupancyGrid, agentPose, currentTimeMs)
     }
 
@@ -1348,14 +1368,16 @@ class CreatureAIController(
     }
 
     /**
-     * Updates adaptive difficulty progression signals from mission state (Milestone 13).
+     * Updates adaptive difficulty progression signals from mission state (Milestone 13/14).
      */
     fun updateDifficultyProgression(
         relicsCollected: Int,
-        threatPercent: Float
+        threatPercent: Float,
+        missionElapsedSec: Float = 0f
     ) {
         synchronized(lock) {
             difficultyController.updateProgression(relicsCollected, threatPercent)
+            currentMissionElapsedSec = missionElapsedSec
         }
     }
 

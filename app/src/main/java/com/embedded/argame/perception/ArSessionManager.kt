@@ -497,7 +497,8 @@ class ArSessionManager(private val activity: Activity) {
             val mSnap = missionManager.getSnapshot()
             creatureAiController.updateDifficultyProgression(
                 relicsCollected = mSnap.relicsCollected,
-                threatPercent = mSnap.captureProgressPercent
+                threatPercent = mSnap.captureProgressPercent,
+                missionElapsedSec = mSnap.elapsedTimeMs / 1000f
             )
         }
     }
@@ -788,6 +789,10 @@ class ArSessionManager(private val activity: Activity) {
         val restarted = missionManager.restartMission()
         if (restarted) {
             resetCreatureAi()
+            synchronized(pathLock) {
+                latestPathResult = null
+                hasNewPathData = true
+            }
         }
         return restarted
     }

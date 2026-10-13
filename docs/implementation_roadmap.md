@@ -43,10 +43,12 @@ The MVP is the smallest complete end-to-end slice demonstrating the core feedbac
   - *Status:* COMPLETED & VERIFIED on Samsung Galaxy Tab S8+ (`SM-X800`) at 59.7–60.4 FPS rendering, 9.3–9.5 Hz depth perception, 95/95 unit tests passing, physical room verified across Tests A through N.
 - **Milestone 13:** Stealth, Noise Investigation & Adaptive Creature Intelligence (Continuous [0, 100] suspicion model with 6 evidence types, decay, and repeated noise ceiling; virtual noise event propagation with linear distance attenuation and obstacle occlusion damping factor 0.35; creature AI INVESTIGATING state and noise targeting with instant chase preemption and 1.5s switching cooldown; 3-tier EASY/STANDARD/CHALLENGING adaptive difficulty with 50-point baseline, hysteresis margin, and 5s cooldown; neon orange OpenGL ES 3.0 visualization; creature HUD telemetry with suspicion and difficulty cards; zero heap churn in GL loop).
   - *Status:* COMPLETED & FULLY TESTED (132/132 unit tests passing across 7 suites, 0 failures, 0 skipped, verified APK built for Samsung Galaxy Tab S8+).
-- **Milestone 14:** Real-Time Depth Occlusion Shader (Real-world physical object occlusion over virtual creature geometry and mission objectives using ARCore 16-bit depth texture in OpenGL ES 3.0 fragment shaders).
-- **Milestone 15:** Procedural AR Dungeon Geometry (Generating virtual walls, corridors, runes, and portals bounded by physical room occupancy grid).
-- **Milestone 16:** Spatial Audio & Acoustic Perception (3D positional audio cues for creature state transitions, audio-guided perception, sound effects for relics and extraction).
-- **Milestone 17:** Final Game Polish, Performance Profiling & Thermal Management.
+- **Milestone 14:** End-to-End Integration, Gameplay Reliability & Device Validation (System data flow audit, formal suspicion vs. detection provenance semantics, instant visual preemption, noise-interrupted search/return, safe unreachable target recovery, clean mission restarts with path clearing, pause/resume clock freeze, difficulty progression time wiring, 17-scenario integration test suite, verified on physical Samsung Galaxy Tab S8+ at 59.9 FPS with zero heap churn).
+  - *Status:* COMPLETED & VERIFIED on Samsung Galaxy Tab S8+ (`SM-X800`) at 59.9–60.0 FPS rendering, 9.4 Hz depth perception, 149/149 unit/integration tests passing.
+- **Milestone 15:** Real-Time Depth Occlusion Shader (Real-world physical object occlusion over virtual creature geometry and mission objectives using ARCore 16-bit depth texture in OpenGL ES 3.0 fragment shaders).
+- **Milestone 16:** Procedural AR Dungeon Geometry (Generating virtual walls, corridors, runes, and portals bounded by physical room occupancy grid).
+- **Milestone 17:** Spatial Audio & Acoustic Perception (3D positional audio cues for creature state transitions, audio-guided perception, sound effects for relics and extraction).
+- **Milestone 18:** Final Game Polish, Performance Profiling & Thermal Management.
 
 ## 3. Deliberately Deferred ("Do Not Build Yet")
 - Game engines (Unity, Unreal)
