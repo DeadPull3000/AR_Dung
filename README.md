@@ -1,3 +1,10 @@
+<picture>
+  <source media="(prefers-reduced-motion: no-preference)" srcset="./project-scan.gif">
+  <img src="./project-static.png" width="1056" alt="AR Dungeon ASCII project diagram">
+</picture>
+
+AR Dungeon uses ARCore depth to map obstacles onto a floor-aligned grid and plan routes with A* in the player’s physical space.
+
 # AR Dungeon — Room-Scale Embedded Systems AR Game
 
 [![Platform](https://img.shields.io/badge/Platform-Android%2014%20(API%2034)-green.svg)](https://developer.android.com/)
